@@ -40,9 +40,9 @@ Start the proxy in the background:
 ```bash
 pnpm start
 ```
-Then change your IDE's `Base URL` (or Custom API Endpoint) to `http://localhost:3000/gemini` (or `/anthropic`, `/openai`). Tokens will be tracked silently with **zero overhead** and **zero extra token cost**.
+Then change your IDE's `Base URL` (or Custom API Endpoint) to `http://localhost:8338/gemini` (or `/anthropic`, `/openai`). Tokens will be tracked silently with **zero overhead** and **zero extra token cost**.
 
-Check your stats anytime at [http://localhost:3000/stats](http://localhost:3000/stats).
+Check your stats anytime at [http://localhost:8338/stats](http://localhost:8338/stats).
 
 ### 2. The MCP Server (Fallback with Autostart)
 If you can't change your Base URL, don't worry! By installing the plugin via the CLI (`agy plugin install ...`), the TokenGhost **MCP Server is automatically registered and configured to autostart**. 

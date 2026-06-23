@@ -132,9 +132,9 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             <h3>How to use in your IDE</h3>
             <p>1. Change your IDE's API Base URL to the proxy:</p>
             <ul>
-                <li>For Anthropic (Claude): <code>http://localhost:3000/anthropic</code></li>
-                <li>For OpenAI (GPT): <code>http://localhost:3000/openai</code></li>
-                <li>For Gemini (Google): <code>http://localhost:3000/gemini</code></li>
+                <li>For Anthropic (Claude): <code>http://localhost:8338/anthropic</code></li>
+                <li>For OpenAI (GPT): <code>http://localhost:8338/openai</code></li>
+                <li>For Gemini (Google): <code>http://localhost:8338/gemini</code></li>
             </ul>
             <p>2. Keep using your IDE normally. Tokens will be logged silently without adding latency.</p>
         </div>

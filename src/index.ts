@@ -15,7 +15,7 @@ async function main() {
         };
     }
 
-    const port = parseInt(process.env.PORT || '3000', 10);
+    const port = parseInt(process.env.PORT || '8338', 10);
     
     // Start the Zero-Latency Proxy & Dashboard
     startProxy(port);

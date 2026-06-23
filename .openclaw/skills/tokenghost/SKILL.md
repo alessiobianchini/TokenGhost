@@ -8,7 +8,7 @@ You have access to the TokenGhost token auditing system. Your goal is to ensure 
 
 ## How it works
 
-1. **Passive Tracking (Zero-Latency Proxy)**: If the user has configured their IDE's Custom API Base URL to point to `http://localhost:3000` (the TokenGhost proxy), token tracking happens automatically in the background. You do not need to take any action.
+1. **Passive Tracking (Zero-Latency Proxy)**: If the user has configured their IDE's Custom API Base URL to point to `http://localhost:8338` (the TokenGhost proxy), token tracking happens automatically in the background. You do not need to take any action.
 2. **Active Tracking (MCP Tool)**: If the user is using native API endpoints and has the TokenGhost MCP server installed, you MUST proactively call the `log_token_usage` MCP tool at the end of significant tasks or conversations to log the estimated tokens consumed.
 
 ## Tools
