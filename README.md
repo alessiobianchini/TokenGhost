@@ -16,7 +16,16 @@ agy plugin install https://github.com/alessiobianchini/TokenGhost
 gemini extensions install https://github.com/alessiobianchini/TokenGhost
 ```
 
-*Don't have the CLI? You can also clone this repository manually into your plugins folder.*
+**For Cursor, Windsurf, Cline, Copilot, Kiro, OpenClaw:**
+Simply copy the matching rules file from this repo into your project:
+- Cursor: `.cursor/rules/tokenghost.mdc`
+- Windsurf: `.windsurf/rules/tokenghost.md`
+- Cline/RooCode: `.clinerules`
+- Copilot: `.github/copilot-instructions.md`
+- Kiro: `.kiro/steering/tokenghost.md`
+- OpenClaw: `.openclaw/skills/tokenghost/SKILL.md`
+
+*Don't have a CLI? You can also clone this repository manually into your plugins folder.*
 
 ## 🚀 How to Use
 
