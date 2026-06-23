@@ -1,0 +1,8 @@
+{
+  "command": "npx.cmd",
+  "args": [
+    "tsx",
+    "./src/index.ts",
+    "--mcp"
+  ]
+}
