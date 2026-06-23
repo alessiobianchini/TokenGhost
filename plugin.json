@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "description": "TokenGhost: The ultimate zero-latency token auditing proxy and MCP server. Automatically tracks LLM token consumption (OpenAI, Anthropic, Gemini) to help optimize AI costs. Perfect for Antigravity, Cursor, Windsurf, and Copilot.",
   "author": "TokenGhost Contributors",
+  "install": "pnpm install && pnpm build",
   "mcpServers": {
     "tokenghost": {
-      "command": "npx.cmd",
+      "command": "node",
       "args": [
-        "tsx",
-        "./src/index.ts",
+        "./dist/index.js",
         "--mcp"
       ]
     }

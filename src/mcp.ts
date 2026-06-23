@@ -91,6 +91,34 @@ export async function startMcpServer() {
         }
     );
 
+    // Add tool for opening the dashboard GUI
+    server.tool(
+        "open_dashboard",
+        "Open the TokenGhost dashboard GUI in the user's default web browser.",
+        {},
+        async () => {
+            try {
+                const port = process.env.PORT || '8338';
+                const url = `http://localhost:${port}/stats`;
+                const { exec } = await import("child_process");
+                let command = '';
+                switch (process.platform) {
+                    case 'darwin': command = `open ${url}`; break;
+                    case 'win32': command = `start "" "${url}"`; break;
+                    default: command = `xdg-open ${url}`; break;
+                }
+                exec(command);
+                return {
+                    content: [{ type: "text", text: `👻 Dashboard opened in the browser at ${url}` }]
+                };
+            } catch (error: any) {
+                return {
+                    content: [{ type: "text", text: `Error: ${error.message}` }]
+                };
+            }
+        }
+    );
+
     // Connect it to stdio
     const transport = new StdioServerTransport();
     await server.connect(transport);

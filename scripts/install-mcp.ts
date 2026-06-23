@@ -23,12 +23,11 @@ function installMcpForAntigravity() {
 
         // Calcoliamo il percorso assoluto in cui si trova TokenGhost in questo momento
         const currentDir = process.cwd();
-        const scriptPath = path.join(currentDir, 'src', 'index.ts');
+        const scriptPath = path.join(currentDir, 'dist', 'index.js');
 
         config.mcpServers['tokenghost'] = {
-            command: process.platform === 'win32' ? 'npx.cmd' : 'npx',
+            command: 'node',
             args: [
-                'tsx',
                 scriptPath,
                 '--mcp'
             ]

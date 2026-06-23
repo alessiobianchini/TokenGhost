@@ -133,10 +133,26 @@ export function startProxy(port: number) {
     });
   });
 
-  server.listen(port, () => {
-    console.log(`\n👻 TokenGhost Proxy running on http://localhost:${port}`);
-    console.log(`📊 Dashboard available at http://localhost:${port}/stats\n`);
+  server.on('error', (e: any) => {
+    if (e.code === 'EADDRINUSE') {
+      console.error(`[TokenGhost] ⚠️ Port ${port} is already in use. Retrying on a random available port...`);
+      // Close the server and try again on port 0
+      server.close();
+      server.listen(0);
+    } else {
+      console.error('[TokenGhost Proxy] Server error:', e);
+    }
   });
+
+  server.on('listening', () => {
+    const address = server.address();
+    const boundPort = typeof address === 'object' && address ? address.port : port;
+    const portLabel = boundPort === port ? `${boundPort}` : `${boundPort} (Dynamic Port)`;
+    console.log(`\n👻 TokenGhost Proxy running on http://localhost:${portLabel}`);
+    console.log(`📊 Dashboard available at http://localhost:${portLabel}/stats\n`);
+  });
+
+  server.listen(port);
 
   return server;
 }
