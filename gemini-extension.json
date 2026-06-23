@@ -1,0 +1,5 @@
+{
+  "name": "tokenghost",
+  "version": "1.0.0",
+  "description": "Zero-latency token auditing proxy and MCP server for Gemini CLI."
+}

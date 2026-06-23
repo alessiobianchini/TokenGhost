@@ -1,0 +1,16 @@
+{
+  "name": "tokenghost",
+  "version": "1.0.0",
+  "description": "Zero-latency token auditing proxy and MCP server for Antigravity Agentic.",
+  "author": "TokenGhost Contributors",
+  "mcpServers": {
+    "tokenghost": {
+      "command": "npx.cmd",
+      "args": [
+        "tsx",
+        "./src/index.ts",
+        "--mcp"
+      ]
+    }
+  }
+}
