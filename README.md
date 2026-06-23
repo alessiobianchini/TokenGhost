@@ -45,9 +45,13 @@ Then change your IDE's `Base URL` (or Custom API Endpoint) to `http://localhost:
 Check your stats anytime at [http://localhost:8338/stats](http://localhost:8338/stats).
 
 ### 2. The MCP Server (Fallback with Autostart)
-If you can't change your Base URL, don't worry! By installing the plugin via the CLI (`agy plugin install ...`), the TokenGhost **MCP Server is automatically registered and configured to autostart**. 
+If you can't change your Base URL, don't worry! Run the auto-installer script:
 
-Every time you open your IDE, the TokenGhost process will invisibly start in the background. No manual terminal commands needed!
+```bash
+pnpm run install:mcp
+```
+
+This will **automatically register and configure the MCP Server to autostart** in your Antigravity Agentic or Claude Code IDE! Every time you open your IDE, the TokenGhost process will invisibly start in the background. No manual terminal commands needed!
 
 Simply ask the AI in your chat:
 > *"Log the tokens for this conversation"*

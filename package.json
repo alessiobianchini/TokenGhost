@@ -6,6 +6,7 @@
   "scripts": {
     "start": "tsx --no-warnings src/index.ts",
     "mcp": "tsx --no-warnings src/index.ts --mcp",
+    "install:mcp": "tsx scripts/install-mcp.ts",
     "build": "tsc"
   },
   "keywords": [
