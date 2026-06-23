@@ -40,8 +40,10 @@ Then change your IDE's `Base URL` (or Custom API Endpoint) to `http://localhost:
 
 Check your stats anytime at [http://localhost:3000/stats](http://localhost:3000/stats).
 
-### 2. The MCP Server (Fallback)
-If you can't change your Base URL, don't worry! The installation automatically registers TokenGhost as an MCP server in your IDE.
+### 2. The MCP Server (Fallback with Autostart)
+If you can't change your Base URL, don't worry! By installing the plugin via the CLI (`agy plugin install ...`), the TokenGhost **MCP Server is automatically registered and configured to autostart**. 
+
+Every time you open your IDE, the TokenGhost process will invisibly start in the background. No manual terminal commands needed!
 
 Simply ask the AI in your chat:
 > *"Log the tokens for this conversation"*
