@@ -9,7 +9,24 @@ async function configureIDE() {
     const appData = process.env.APPDATA || path.join(homeDir, 'AppData', 'Roaming');
     const projectDistPath = path.join(__dirname, '..', 'dist', 'index.js').replace(/\\/g, '/');
 
-    // 1. VS Code Settings Path
+    // 1. Workspace .vscode/mcp.json
+    const vscodeFolder = path.join(__dirname, '..', '.vscode');
+    if (!fs.existsSync(vscodeFolder)) {
+        fs.mkdirSync(vscodeFolder, { recursive: true });
+    }
+    const workspaceMcpPath = path.join(vscodeFolder, 'mcp.json');
+    const workspaceMcpConfig = {
+        mcpServers: {
+            tokenghost: {
+                command: "node",
+                args: [projectDistPath, "--mcp"]
+            }
+        }
+    };
+    fs.writeFileSync(workspaceMcpPath, JSON.stringify(workspaceMcpConfig, null, 2), 'utf-8');
+    console.log(`✅ Created workspace MCP configuration at ${workspaceMcpPath}`);
+
+    // 2. Global VS Code Settings Path
     const vscodeSettingsPath = path.join(appData, 'Code', 'User', 'settings.json');
 
     if (fs.existsSync(vscodeSettingsPath)) {
@@ -17,13 +34,13 @@ async function configureIDE() {
             const raw = fs.readFileSync(vscodeSettingsPath, 'utf-8');
             const settings = JSON.parse(raw);
 
-            // A. Inject Copilot Instructions
+            // Inject Copilot Instructions
             if (!settings['github.copilot.chat.codeGeneration.instructions']) {
                 settings['github.copilot.chat.codeGeneration.instructions'] = [];
             }
 
             const existingInstructions = settings['github.copilot.chat.codeGeneration.instructions'];
-            const tokenGhostInstructionText = "Mandatory Token Auto-Logging: TokenGhost is active. You MUST automatically invoke the `log_token_usage` MCP tool at the end of every response/task to log estimated token consumption.";
+            const tokenGhostInstructionText = "Mandatory Token Auto-Logging: TokenGhost is active. Use the TokenGhost MCP tool `get_token_stats` to query stats, and `log_token_usage` to record token consumption.";
 
             const exists = existingInstructions.some((item: any) => 
                 (typeof item === 'string' && item.includes('TokenGhost')) || 
@@ -34,11 +51,10 @@ async function configureIDE() {
                 existingInstructions.push({ text: tokenGhostInstructionText });
             }
 
-            // B. Inject Native VS Code MCP Server Configuration
+            // Inject Global VS Code MCP Server Configuration
             if (!settings['mcp.servers']) {
                 settings['mcp.servers'] = {};
             }
-
             settings['mcp.servers']['tokenghost'] = {
                 command: "node",
                 args: [projectDistPath, "--mcp"]

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "tokenghost": {
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/dist/index.js",
+        "--mcp"
+      ]
+    }
+  }
+}
