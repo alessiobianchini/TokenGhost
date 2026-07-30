@@ -7,7 +7,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
     const all = getTokenStats('all');
     const recentLogs = getRecentLogs(50);
 
-    // Raccogliamo tutti i provider unici per creare i filtri
     const providersSet = new Set<string>();
     Object.keys(all.providers).forEach(p => providersSet.add(p));
     
@@ -20,11 +19,16 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
     for (const log of recentLogs) {
         const rawTimestamp = log.timestamp || new Date().toISOString();
         const p = log.provider.toLowerCase();
+        const cost = (log.estimated_cost_usd || 0).toFixed(4);
         
         let badgeColor = '#555';
         if (p.includes('anthropic') || p.includes('claude')) badgeColor = '#d97757';
         else if (p.includes('openai') || p.includes('gpt')) badgeColor = '#10a37f';
         else if (p.includes('gemini') || p.includes('google')) badgeColor = '#1a73e8';
+        else if (p.includes('deepseek')) badgeColor = '#4d6bfe';
+        else if (p.includes('openrouter')) badgeColor = '#ff6b00';
+        else if (p.includes('groq')) badgeColor = '#f55036';
+        else if (p.includes('ollama')) badgeColor = '#888888';
 
         logsHtml += `
             <tr class="log-row" data-provider="${log.provider}">
@@ -34,15 +38,15 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 <td class="num">${log.input_tokens.toLocaleString()}</td>
                 <td class="num">${log.output_tokens.toLocaleString()}</td>
                 <td class="num total-col">${log.total_tokens.toLocaleString()}</td>
+                <td class="num cost-col">$${cost}</td>
             </tr>
         `;
     }
 
     if (logsHtml === '') {
-        logsHtml = '<tr id="no-logs"><td colspan="6" style="text-align: center; color: #888; padding: 2rem;">No logs found yet. Start sending messages!</td></tr>';
+        logsHtml = '<tr id="no-logs"><td colspan="7" style="text-align: center; color: #888; padding: 2rem;">No logs found yet. Start sending messages!</td></tr>';
     }
 
-    // Inseriamo i dati JSON nel template per farli leggere allo script lato client
     const statsData = JSON.stringify({
         today: today,
         yesterday: yesterday,
@@ -62,7 +66,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             h1 span { font-size: 1rem; font-weight: normal; color: #888; margin-left: 1rem; }
             h2 { color: #03dac6; margin-top: 3rem; margin-bottom: 1rem; }
             
-            .filters { display: flex; gap: 0.5rem; margin-top: 1.5rem; }
+            .filters { display: flex; gap: 0.5rem; margin-top: 1.5rem; flex-wrap: wrap; }
             .filter-btn { background: #252525; border: 1px solid #444; color: #aaa; padding: 0.5rem 1rem; border-radius: 20px; cursor: pointer; transition: all 0.2s; font-size: 0.9rem; font-weight: bold; text-transform: capitalize; }
             .filter-btn:hover { background: #333; color: #fff; }
             .filter-btn.active { background: #bb86fc; color: #000; border-color: #bb86fc; }
@@ -70,8 +74,9 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             .card-container { display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap; }
             .card { background: #1e1e1e; padding: 1.5rem; border-radius: 8px; flex: 1; min-width: 200px; border: 1px solid #333; transition: all 0.3s ease; }
             .card h3 { margin: 0 0 1rem 0; font-size: 1.2rem; color: #03dac6; }
-            .stat { font-size: 2.5rem; font-weight: bold; margin: 0; color: #fff; }
-            .sub-stats { font-size: 0.9rem; color: #aaa; margin-top: 0.5rem; }
+            .stat { font-size: 2.2rem; font-weight: bold; margin: 0; color: #fff; }
+            .cost { font-size: 1.2rem; font-weight: bold; color: #03dac6; margin-top: 0.4rem; }
+            .sub-stats { font-size: 0.85rem; color: #aaa; margin-top: 0.5rem; }
             
             table { width: 100%; border-collapse: collapse; margin-top: 0; background: #1e1e1e; border-radius: 8px; overflow: hidden; border: 1px solid #333; }
             th, td { padding: 1rem; text-align: left; border-bottom: 1px solid #2a2a2a; }
@@ -80,6 +85,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             tr:hover { background: #252525; }
             .num { text-align: right; font-family: monospace; font-size: 1.1rem; }
             .total-col { color: #bb86fc; font-weight: bold; }
+            .cost-col { color: #03dac6; font-weight: bold; }
             .badge { padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; font-weight: bold; color: white; text-transform: uppercase; }
             
             .instructions { margin-top: 3rem; background: #1e1e1e; padding: 1.5rem; border-radius: 8px; border: 1px solid #333; }
@@ -97,16 +103,19 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             <div class="card">
                 <h3>Today</h3>
                 <div class="stat" id="stat-today-total">${today.global.total_tokens.toLocaleString()}</div>
+                <div class="cost" id="stat-today-cost">$${today.global.estimated_cost_usd.toFixed(4)} USD</div>
                 <div class="sub-stats" id="stat-today-sub">In: ${today.global.input_tokens.toLocaleString()} | Out: ${today.global.output_tokens.toLocaleString()}</div>
             </div>
             <div class="card">
                 <h3>Yesterday</h3>
                 <div class="stat" id="stat-yesterday-total">${yesterday.global.total_tokens.toLocaleString()}</div>
+                <div class="cost" id="stat-yesterday-cost">$${yesterday.global.estimated_cost_usd.toFixed(4)} USD</div>
                 <div class="sub-stats" id="stat-yesterday-sub">In: ${yesterday.global.input_tokens.toLocaleString()} | Out: ${yesterday.global.output_tokens.toLocaleString()}</div>
             </div>
             <div class="card">
                 <h3>All Time</h3>
                 <div class="stat" id="stat-all-total">${all.global.total_tokens.toLocaleString()}</div>
+                <div class="cost" id="stat-all-cost">$${all.global.estimated_cost_usd.toFixed(4)} USD</div>
                 <div class="sub-stats" id="stat-all-sub">In: ${all.global.input_tokens.toLocaleString()} | Out: ${all.global.output_tokens.toLocaleString()}</div>
             </div>
         </div>
@@ -121,6 +130,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                     <th style="text-align: right;">Input</th>
                     <th style="text-align: right;">Output</th>
                     <th style="text-align: right;">Total Tokens</th>
+                    <th style="text-align: right;">Est. Cost</th>
                 </tr>
             </thead>
             <tbody>
@@ -135,6 +145,10 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 <li>For Anthropic (Claude): <code>http://localhost:8338/anthropic</code></li>
                 <li>For OpenAI (GPT): <code>http://localhost:8338/openai</code></li>
                 <li>For Gemini (Google): <code>http://localhost:8338/gemini</code></li>
+                <li>For DeepSeek: <code>http://localhost:8338/deepseek</code></li>
+                <li>For OpenRouter: <code>http://localhost:8338/openrouter</code></li>
+                <li>For Groq: <code>http://localhost:8338/groq</code></li>
+                <li>For Ollama (Local): <code>http://localhost:8338/ollama</code></li>
             </ul>
             <p>2. Keep using your IDE normally. Tokens will be logged silently without adding latency.</p>
         </div>
@@ -142,22 +156,20 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         <script>
             const statsData = ${statsData};
 
-            // Aggiorna interfaccia UI quando si cambia provider
             function updateUI(provider) {
-                // Aggiorna le Card dei totali
                 const periods = ['today', 'yesterday', 'all'];
                 periods.forEach(p => {
                     let data;
                     if (provider === 'all') {
                         data = statsData[p].global;
                     } else {
-                        data = statsData[p].providers[provider] || { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+                        data = statsData[p].providers[provider] || { input_tokens: 0, output_tokens: 0, total_tokens: 0, estimated_cost_usd: 0 };
                     }
                     document.getElementById('stat-' + p + '-total').innerText = data.total_tokens.toLocaleString();
+                    document.getElementById('stat-' + p + '-cost').innerText = '$' + (data.estimated_cost_usd || 0).toFixed(4) + ' USD';
                     document.getElementById('stat-' + p + '-sub').innerText = 'In: ' + data.input_tokens.toLocaleString() + ' | Out: ' + data.output_tokens.toLocaleString();
                 });
 
-                // Filtra la tabella Activity Log
                 const rows = document.querySelectorAll('.log-row');
                 let visibleCount = 0;
                 rows.forEach(row => {
@@ -179,7 +191,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 }
             }
 
-            // Aggiungi eventi ai bottoni dei filtri
             document.querySelectorAll('.filter-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -188,7 +199,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 });
             });
 
-            // Converte i timestamp UTC nell'orario locale esatto del browser
             document.querySelectorAll('.local-time').forEach(el => {
                 const ts = el.getAttribute('data-timestamp');
                 if (ts) {

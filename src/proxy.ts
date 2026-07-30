@@ -3,6 +3,13 @@ import httpProxy from 'http-proxy';
 import { logTokenUsage } from './db';
 import { handleDashboard } from './dashboard';
 
+// Active port tracker so open_dashboard always targets the real running port
+let activeProxyPort = 8338;
+
+export function getActivePort(): number {
+  return activeProxyPort;
+}
+
 // Create the proxy server
 const proxy = httpProxy.createProxyServer({
   secure: false,
@@ -20,6 +27,8 @@ proxy.on('error', (err, req, res) => {
 });
 
 export function startProxy(port: number) {
+  activeProxyPort = port;
+
   const server = http.createServer((req, res) => {
     // 1. Dashboard Endpoint
     if (req.url === '/' || req.url === '/stats') {
@@ -30,10 +39,10 @@ export function startProxy(port: number) {
     let target = '';
     let provider = 'unknown';
     
-    // Support URL routing (e.g. IDE points to http://localhost:3000/anthropic/v1/messages)
+    // Support URL routing
     if (req.url?.startsWith('/openai/')) {
       target = 'https://api.openai.com';
-      req.url = req.url.replace('/openai', ''); // strip prefix
+      req.url = req.url.replace('/openai', '');
       provider = 'openai';
     } else if (req.url?.startsWith('/anthropic/')) {
       target = 'https://api.anthropic.com';
@@ -43,6 +52,22 @@ export function startProxy(port: number) {
       target = 'https://generativelanguage.googleapis.com';
       req.url = req.url.replace('/gemini', '');
       provider = 'gemini';
+    } else if (req.url?.startsWith('/deepseek/')) {
+      target = 'https://api.deepseek.com';
+      req.url = req.url.replace('/deepseek', '');
+      provider = 'deepseek';
+    } else if (req.url?.startsWith('/openrouter/')) {
+      target = 'https://openrouter.ai/api';
+      req.url = req.url.replace('/openrouter', '');
+      provider = 'openrouter';
+    } else if (req.url?.startsWith('/groq/')) {
+      target = 'https://api.groq.com/openai';
+      req.url = req.url.replace('/groq', '');
+      provider = 'groq';
+    } else if (req.url?.startsWith('/ollama/')) {
+      target = 'http://localhost:11434';
+      req.url = req.url.replace('/ollama', '');
+      provider = 'ollama';
     } else if (req.headers['x-provider']) {
       target = 'https://api.anthropic.com';
       provider = req.headers['x-provider'] as string;
@@ -52,10 +77,10 @@ export function startProxy(port: number) {
       provider = 'anthropic';
     }
 
-    // Inject our provider info into the request object for the response handler
+    // Inject provider info into the request object
     (req as any).__provider = provider;
 
-    // Handle CORS preflight explicitly so the IDE doesn't complain
+    // Handle CORS preflight
     if (req.method === 'OPTIONS') {
         res.writeHead(204, {
             'Access-Control-Allow-Origin': '*',
@@ -78,18 +103,16 @@ export function startProxy(port: number) {
     const provider = (req as any).__provider || 'unknown';
     let buffer = '';
 
-    // Passively spy on the stream without consuming it
     proxyRes.on('data', (chunk) => {
       buffer += chunk.toString('utf8');
     });
 
-    // Parse the tokens asymmetrically on completion
     proxyRes.on('end', () => {
         try {
            let input_tokens = 0;
            let output_tokens = 0;
 
-           // Try to extract the model
+           // Extract model name
            const modelMatch = buffer.match(/"model"\s*:\s*"([^"]+)"/);
            const model = modelMatch ? modelMatch[1] : 'unknown';
 
@@ -104,15 +127,19 @@ export function startProxy(port: number) {
                }
                output_tokens = maxOut;
 
-           } else if (provider === 'openai') {
+           } else if (provider === 'openai' || provider === 'deepseek' || provider === 'openrouter' || provider === 'groq') {
                const promptMatches = [...buffer.matchAll(/"prompt_tokens"\s*:\s*(\d+)/g)];
                const compMatches = [...buffer.matchAll(/"completion_tokens"\s*:\s*(\d+)/g)];
                if (promptMatches.length > 0) input_tokens = parseInt(promptMatches[promptMatches.length - 1][1]);
                if (compMatches.length > 0) output_tokens = parseInt(compMatches[compMatches.length - 1][1]);
            } else if (provider === 'gemini') {
-               // Gemini format: usageMetadata: { promptTokenCount: X, candidatesTokenCount: Y }
                const promptMatches = [...buffer.matchAll(/"promptTokenCount"\s*:\s*(\d+)/g)];
                const compMatches = [...buffer.matchAll(/"candidatesTokenCount"\s*:\s*(\d+)/g)];
+               if (promptMatches.length > 0) input_tokens = parseInt(promptMatches[promptMatches.length - 1][1]);
+               if (compMatches.length > 0) output_tokens = parseInt(compMatches[compMatches.length - 1][1]);
+           } else if (provider === 'ollama') {
+               const promptMatches = [...buffer.matchAll(/"prompt_eval_count"\s*:\s*(\d+)/g)];
+               const compMatches = [...buffer.matchAll(/"eval_count"\s*:\s*(\d+)/g)];
                if (promptMatches.length > 0) input_tokens = parseInt(promptMatches[promptMatches.length - 1][1]);
                if (compMatches.length > 0) output_tokens = parseInt(compMatches[compMatches.length - 1][1]);
            }
@@ -136,7 +163,6 @@ export function startProxy(port: number) {
   server.on('error', (e: any) => {
     if (e.code === 'EADDRINUSE') {
       console.error(`[TokenGhost] ⚠️ Port ${port} is already in use. Retrying on a random available port...`);
-      // Close the server and try again on port 0
       server.close();
       server.listen(0);
     } else {
@@ -147,6 +173,7 @@ export function startProxy(port: number) {
   server.on('listening', () => {
     const address = server.address();
     const boundPort = typeof address === 'object' && address ? address.port : port;
+    activeProxyPort = boundPort;
     const portLabel = boundPort === port ? `${boundPort}` : `${boundPort} (Dynamic Port)`;
     console.log(`\n👻 TokenGhost Proxy running on http://localhost:${portLabel}`);
     console.log(`📊 Dashboard available at http://localhost:${portLabel}/stats\n`);
