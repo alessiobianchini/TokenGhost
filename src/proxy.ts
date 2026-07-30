@@ -4,6 +4,7 @@ import { logTokenUsage, getLogsAsCsv, getLogsAsJson, getTokenStats, getRecentLog
 import { handleDashboard } from './dashboard';
 
 let activeProxyPort = 8338;
+let currentServerInstance: http.Server | null = null;
 
 export function getActivePort(): number {
   return activeProxyPort;
@@ -24,7 +25,6 @@ proxy.on('error', (err, req, res) => {
   }
 });
 
-// Secrets & PII Sniffer Helper
 function scanForSecrets(content: string): { hasSecret: boolean; type?: string } {
   if (!content) return { hasSecret: false };
 
@@ -39,6 +39,12 @@ function scanForSecrets(content: string): { hasSecret: boolean; type?: string } 
 
 export function startProxy(port: number) {
   activeProxyPort = port;
+
+  if (currentServerInstance) {
+    try {
+      currentServerInstance.close();
+    } catch (e) {}
+  }
 
   const server = http.createServer((req, res) => {
     // 1. Dashboard Endpoint
@@ -62,16 +68,22 @@ export function startProxy(port: number) {
       return;
     }
 
-    // 3. Restart Proxy API Endpoint
+    // 3. Restart Proxy API Endpoint (In-Memory Hot Reload)
     if (req.url === '/api/restart' && (req.method === 'POST' || req.method === 'GET')) {
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       });
-      res.end(JSON.stringify({ success: true, message: 'Restarting TokenGhost proxy server...' }));
-      console.log('[TokenGhost] ⚡ Restart request received. Restarting process...');
+      res.end(JSON.stringify({ success: true, message: 'TokenGhost proxy server successfully restarted in-memory.' }));
+      console.log('[TokenGhost] ⚡ Restart request received. Hot-reloading server instance in-memory...');
       setTimeout(() => {
-        process.exit(0);
+        try {
+          server.close(() => {
+            startProxy(port);
+          });
+        } catch (e) {
+          startProxy(port);
+        }
       }, 500);
       return;
     }
@@ -257,6 +269,7 @@ export function startProxy(port: number) {
     console.log(`📊 Dashboard available at http://localhost:${portLabel}/stats\n`);
   });
 
+  currentServerInstance = server;
   server.listen(port);
 
   return server;

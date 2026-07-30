@@ -7,8 +7,9 @@ async function configureIDE() {
 
     const homeDir = os.homedir();
     const appData = process.env.APPDATA || path.join(homeDir, 'AppData', 'Roaming');
+    const projectDistPath = path.join(__dirname, '..', 'dist', 'index.js').replace(/\\/g, '/');
 
-    // 1. VS Code / Copilot Settings Path
+    // 1. VS Code Settings Path
     const vscodeSettingsPath = path.join(appData, 'Code', 'User', 'settings.json');
 
     if (fs.existsSync(vscodeSettingsPath)) {
@@ -16,6 +17,7 @@ async function configureIDE() {
             const raw = fs.readFileSync(vscodeSettingsPath, 'utf-8');
             const settings = JSON.parse(raw);
 
+            // A. Inject Copilot Instructions
             if (!settings['github.copilot.chat.codeGeneration.instructions']) {
                 settings['github.copilot.chat.codeGeneration.instructions'] = [];
             }
@@ -30,11 +32,29 @@ async function configureIDE() {
 
             if (!exists) {
                 existingInstructions.push({ text: tokenGhostInstructionText });
-                fs.writeFileSync(vscodeSettingsPath, JSON.stringify(settings, null, 2), 'utf-8');
-                console.log(`✅ Injected TokenGhost Auto-Logging instructions into VS Code Settings (${vscodeSettingsPath})`);
-            } else {
-                console.log(`ℹ️ TokenGhost Auto-Logging instructions already configured in VS Code Settings.`);
             }
+
+            // B. Inject Native VS Code MCP Server Configuration
+            if (!settings['mcp.servers']) {
+                settings['mcp.servers'] = {};
+            }
+
+            settings['mcp.servers']['tokenghost'] = {
+                command: "node",
+                args: [projectDistPath, "--mcp"]
+            };
+
+            if (!settings['mcpServers']) {
+                settings['mcpServers'] = {};
+            }
+            settings['mcpServers']['tokenghost'] = {
+                command: "node",
+                args: [projectDistPath, "--mcp"]
+            };
+
+            fs.writeFileSync(vscodeSettingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+            console.log(`✅ Injected TokenGhost MCP Server and Copilot Instructions into VS Code Settings (${vscodeSettingsPath})`);
+
         } catch (err: any) {
             console.error(`⚠️ Could not update VS Code Settings: ${err.message}`);
         }
