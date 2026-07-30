@@ -3,7 +3,7 @@
     "tokenghost": {
       "command": "node",
       "args": [
-        "${workspaceFolder}/dist/index.js",
+        "D:/Git/Ale/AI/mcp/TokenGhost/dist/index.js",
         "--mcp"
       ]
     }
