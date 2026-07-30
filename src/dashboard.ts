@@ -142,7 +142,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             .nav-tab:hover { color: var(--text-main); background: rgba(255, 255, 255, 0.05); }
             .nav-tab.active { color: var(--primary); background: rgba(187, 134, 252, 0.12); }
             
-            .actions-group { display: flex; align-items: center; gap: 0.75rem; }
+            .actions-group { display: flex; align-items: center; gap: 0.6rem; }
             .btn-action {
                 background: #25252b;
                 border: 1px solid var(--surface-border);
@@ -159,6 +159,8 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 gap: 0.4rem;
             }
             .btn-action:hover { background: var(--primary); color: #000; border-color: var(--primary); }
+            .btn-restart { border-color: #ff5252; color: #ff8080; }
+            .btn-restart:hover { background: #ff5252; color: #fff; }
 
             .status-badge {
                 display: flex;
@@ -173,6 +175,23 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 font-weight: 600;
             }
             .status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: var(--secondary); box-shadow: 0 0 8px var(--secondary); }
+
+            /* Vector SVG Refresh Icon Styling */
+            .svg-icon {
+                width: 14px;
+                height: 14px;
+                fill: currentColor;
+                display: inline-block;
+                vertical-align: middle;
+                transform-origin: center center;
+            }
+            .spinning .svg-icon {
+                animation: spinSvg 0.8s linear infinite;
+            }
+            @keyframes spinSvg {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
 
             .main-container { max-width: 1200px; margin: 2rem auto; padding: 0 1.5rem; }
             .tab-content { display: none; animation: fadeIn 0.25s ease; }
@@ -220,9 +239,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             .endpoint-card { background: #121214; padding: 1rem; border-radius: 8px; border: 1px solid var(--surface-border); }
             .endpoint-card label { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem; color: var(--secondary); }
             code { background: #000; padding: 0.3rem 0.6rem; border-radius: 4px; color: var(--primary); font-family: monospace; font-size: 0.9rem; word-break: break-all; display: block; }
-            
-            .spinning { animation: spin 0.8s linear infinite; }
-            @keyframes spin { 100% { transform: rotate(360deg); } }
         </style>
     </head>
     <body>
@@ -243,8 +259,9 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
 
             <div class="actions-group">
                 <button id="btn-refresh" class="btn-action" onclick="fetchLiveStats(true)">
-                    <span id="refresh-icon">🔄</span> Refresh
+                    <svg class="svg-icon" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg> Refresh
                 </button>
+                <button class="btn-action btn-restart" onclick="restartServerUI()">⚡ Restart Proxy</button>
                 <a href="/export/csv" class="btn-action">📥 CSV</a>
                 <a href="/export/json" class="btn-action">📥 JSON</a>
                 <div class="status-badge">
@@ -418,7 +435,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                     document.getElementById('stat-' + p + '-sub').innerText = 'In: ' + data.input_tokens.toLocaleString() + ' | Out: ' + data.output_tokens.toLocaleString();
                 });
 
-                // Update Budget Bar
                 const todayData = statsData.today;
                 let budgetColor = '#03dac6';
                 if (todayData.budget_used_percent >= 100) budgetColor = '#ff5252';
@@ -466,10 +482,9 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 }
             }
 
-            // Live Refresh via JSON API
             async function fetchLiveStats(isManual = false) {
-                const icon = document.getElementById('refresh-icon');
-                if (icon) icon.classList.add('spinning');
+                const btn = document.getElementById('btn-refresh');
+                if (btn) btn.classList.add('spinning');
 
                 try {
                     const res = await fetch('/api/stats');
@@ -490,12 +505,25 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                     console.error('Failed to fetch live stats:', e);
                 } finally {
                     setTimeout(() => {
-                        if (icon) icon.classList.remove('spinning');
+                        if (btn) btn.classList.remove('spinning');
                     }, 500);
                 }
             }
 
-            // Auto-refresh every 5 seconds
+            async function restartServerUI() {
+                if (!confirm('Are you sure you want to restart the TokenGhost proxy server?')) return;
+                try {
+                    const res = await fetch('/api/restart', { method: 'POST' });
+                    if (res.ok) {
+                        alert('⚡ Proxy server restart initiated. The page will reload in 2 seconds.');
+                        setTimeout(() => window.location.reload(), 2000);
+                    }
+                } catch (e) {
+                    alert('Server restarted or connection closed.');
+                    setTimeout(() => window.location.reload(), 2000);
+                }
+            }
+
             setInterval(() => fetchLiveStats(false), 5000);
 
             document.getElementById('search-input')?.addEventListener('input', filterLogs);
@@ -520,7 +548,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 }
             });
 
-            // Initialize Chart
             if (window.Chart && statsData.timeSeries) {
                 const ctx = document.getElementById('usageChart').getContext('2d');
                 chartInstance = new Chart(ctx, {

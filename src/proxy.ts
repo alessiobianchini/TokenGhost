@@ -49,7 +49,21 @@ export function startProxy(port: number) {
       return;
     }
 
-    // 3. Export Endpoints
+    // 3. Restart Proxy API Endpoint
+    if (req.url === '/api/restart' && (req.method === 'POST' || req.method === 'GET')) {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify({ success: true, message: 'Restarting TokenGhost proxy server...' }));
+      console.log('[TokenGhost] ⚡ Restart request received. Restarting process...');
+      setTimeout(() => {
+        process.exit(0);
+      }, 500);
+      return;
+    }
+
+    // 4. Export Endpoints
     if (req.url === '/export/csv') {
       const csv = getLogsAsCsv();
       res.writeHead(200, {
@@ -70,7 +84,7 @@ export function startProxy(port: number) {
       return;
     }
 
-    // 4. Proxy Routing
+    // 5. Proxy Routing
     let target = '';
     let provider = 'unknown';
     

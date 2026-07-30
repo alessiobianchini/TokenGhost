@@ -112,7 +112,28 @@ export async function startMcpServer() {
         }
     );
 
-    // 4. Tool: log_token_usage
+    // 4. Tool: restart_server
+    server.tool(
+        "restart_server",
+        "Restart the TokenGhost proxy server process.",
+        {},
+        async () => {
+            try {
+                setTimeout(() => {
+                    process.exit(0);
+                }, 500);
+                return {
+                    content: [{ type: "text", text: "⚡ TokenGhost proxy server restart initiated." }]
+                };
+            } catch (error: any) {
+                return {
+                    content: [{ type: "text", text: `Error: ${error.message}` }]
+                };
+            }
+        }
+    );
+
+    // 5. Tool: log_token_usage
     server.tool(
         "log_token_usage",
         "Log estimated tokens used in an interaction.",
@@ -142,7 +163,7 @@ export async function startMcpServer() {
         }
     );
 
-    // 5. Tool: get_recent_logs
+    // 6. Tool: get_recent_logs
     server.tool(
         "get_recent_logs",
         "Get the most recent individual token consumption logs.",
@@ -167,7 +188,7 @@ export async function startMcpServer() {
         }
     );
 
-    // 6. Tool: open_dashboard
+    // 7. Tool: open_dashboard
     server.tool(
         "open_dashboard",
         "Open the TokenGhost dashboard GUI in the user's default web browser.",
@@ -195,7 +216,7 @@ export async function startMcpServer() {
         }
     );
 
-    // 7. Tool: clear_token_logs
+    // 8. Tool: clear_token_logs
     server.tool(
         "clear_token_logs",
         "Clear all logged token usage data.",
