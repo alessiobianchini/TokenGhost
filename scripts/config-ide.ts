@@ -34,6 +34,10 @@ async function configureIDE() {
             const raw = fs.readFileSync(vscodeSettingsPath, 'utf-8');
             const settings = JSON.parse(raw);
 
+            // Enable Chat MCP flags
+            settings['chat.mcp.enabled'] = true;
+            settings['github.copilot.chat.mcp.enabled'] = true;
+
             // Inject Copilot Instructions
             if (!settings['github.copilot.chat.codeGeneration.instructions']) {
                 settings['github.copilot.chat.codeGeneration.instructions'] = [];
