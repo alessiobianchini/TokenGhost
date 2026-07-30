@@ -9,13 +9,13 @@ import path from 'path';
 export async function startMcpServer() {
     const server = new McpServer({
         name: "TokenGhost",
-        version: "1.2.0"
+        version: "1.3.0"
     });
 
     // 1. Tool: get_token_stats
     server.tool(
         "get_token_stats",
-        "Get AI token consumption stats, model breakdowns, estimated USD costs, and budget status.",
+        "Get AI token consumption stats, model breakdowns, estimated USD costs, and per-agent budget status.",
         {
             period: z.enum(["today", "yesterday", "all"]).describe("The period to get stats for.")
         },
@@ -30,11 +30,23 @@ export async function startMcpServer() {
                 text += `• Total Tokens: ${stats.global.total_tokens.toLocaleString()}\n`;
 
                 if (period === 'today') {
-                    text += `• Daily Budget: $${stats.daily_budget_usd.toFixed(2)} USD (${stats.budget_used_percent}% used)\n`;
-                    if (stats.budget_used_percent >= 100) {
-                        text += `🚨 WARNING: Daily spending budget EXCEEDED! ($${stats.global.estimated_cost_usd.toFixed(4)} / $${stats.daily_budget_usd.toFixed(2)})\n`;
-                    } else if (stats.budget_used_percent >= 80) {
-                        text += `⚠️ ALERT: 80%+ of daily spending budget reached! ($${stats.global.estimated_cost_usd.toFixed(4)} / $${stats.daily_budget_usd.toFixed(2)})\n`;
+                    if (stats.budget.is_unlimited) {
+                        text += `• Daily Budget: ♾️ Unlimited\n`;
+                    } else {
+                        text += `• Daily Budget: $${stats.budget.global_daily_usd.toFixed(2)} USD (${stats.budget.used_percent}% used)\n`;
+                        if (stats.budget.used_percent >= 100) {
+                            text += `🚨 WARNING: Daily spending budget EXCEEDED! ($${stats.global.estimated_cost_usd.toFixed(4)} / $${stats.budget.global_daily_usd.toFixed(2)})\n`;
+                        } else if (stats.budget.used_percent >= 80) {
+                            text += `⚠️ ALERT: 80%+ of daily spending budget reached! ($${stats.global.estimated_cost_usd.toFixed(4)} / $${stats.budget.global_daily_usd.toFixed(2)})\n`;
+                        }
+                    }
+
+                    if (Object.keys(stats.budget.agent_budgets).length > 0) {
+                        text += `🎯 Agent Budget Configurations:\n`;
+                        for (const [ag, b] of Object.entries(stats.budget.agent_budgets)) {
+                            const label = b <= 0 ? "♾️ Unlimited" : `$${b.toFixed(2)} USD`;
+                            text += `  - ${ag.toUpperCase()}: ${label}\n`;
+                        }
                     }
                 }
                 text += `\n`;
@@ -68,15 +80,18 @@ export async function startMcpServer() {
     // 2. Tool: set_daily_budget
     server.tool(
         "set_daily_budget",
-        "Set the daily USD spending budget limit for TokenGhost alerts.",
+        "Set the daily USD spending budget limit globally or per agent (use -1 or 0 for Unlimited).",
         {
-            limit_usd: z.number().describe("The daily USD spend limit (e.g. 5.00)")
+            limit_usd: z.number().describe("The daily USD spend limit (-1 or 0 for Unlimited)"),
+            agent: z.string().optional().describe("Optional agent/client name (e.g. antigravity, copilot, cursor, windsurf)")
         },
-        async ({ limit_usd }) => {
+        async ({ limit_usd, agent }) => {
             try {
-                const newLimit = setDailyBudget(limit_usd);
+                const config = setDailyBudget(limit_usd, agent);
+                const targetName = agent ? `for agent '${agent}'` : "globally";
+                const label = limit_usd <= 0 ? "♾️ Unlimited" : `$${Math.max(0.1, limit_usd).toFixed(2)} USD`;
                 return {
-                    content: [{ type: "text", text: `🎯 Daily spending budget updated to $${newLimit.toFixed(2)} USD.` }]
+                    content: [{ type: "text", text: `🎯 Daily spending budget ${targetName} updated to ${label}.` }]
                 };
             } catch (error: any) {
                 return {
@@ -141,13 +156,15 @@ export async function startMcpServer() {
             input_tokens: z.number().describe("Number of input tokens"),
             output_tokens: z.number().describe("Number of output tokens"),
             provider: z.string().optional().default("gemini").describe("Provider name"),
-            model: z.string().optional().default("antigravity").describe("Model name")
+            model: z.string().optional().default("antigravity").describe("Model name"),
+            agent: z.string().optional().describe("Agent or client name")
         },
-        async ({ input_tokens, output_tokens, provider, model }) => {
+        async ({ input_tokens, output_tokens, provider, model, agent }) => {
             try {
                 logTokenUsage({
                     provider,
                     model,
+                    agent,
                     input_tokens,
                     output_tokens,
                     total_tokens: input_tokens + output_tokens
@@ -241,10 +258,11 @@ export async function startMcpServer() {
         "tokenghost://stats/today",
         async (uri) => {
             const stats = getTokenStats("today");
+            const budgetLabel = stats.budget.is_unlimited ? "♾️ Unlimited" : `$${stats.budget.global_daily_usd.toFixed(2)} USD (${stats.budget.used_percent}% used)`;
             return {
                 contents: [{
                     uri: uri.href,
-                    text: `Token Usage (Today): ${stats.global.total_tokens.toLocaleString()} tokens | Cost: $${stats.global.estimated_cost_usd.toFixed(4)} USD | Budget: $${stats.daily_budget_usd.toFixed(2)} USD (${stats.budget_used_percent}% used)`
+                    text: `Token Usage (Today): ${stats.global.total_tokens.toLocaleString()} tokens | Cost: $${stats.global.estimated_cost_usd.toFixed(4)} USD | Budget: ${budgetLabel}`
                 }]
             };
         }

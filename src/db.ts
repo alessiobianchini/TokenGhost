@@ -12,12 +12,12 @@ export interface TokenLog {
   total_tokens: number;
   estimated_cost_usd?: number;
   timestamp?: string;
+  agent?: string;
 }
 
-// Pricing table (per 1,000,000 tokens in USD)
 interface ModelPrice {
-  input: number;  // $ per 1M input tokens
-  output: number; // $ per 1M output tokens
+  input: number;
+  output: number;
 }
 
 const PRICING: Record<string, ModelPrice> = {
@@ -38,6 +38,11 @@ const PRICING: Record<string, ModelPrice> = {
   'llama-3.3-70b': { input: 0.59, output: 0.79 },
 };
 
+export interface BudgetConfig {
+  global_daily_budget_usd: number; // -1 or 0 means Unlimited
+  agent_budgets: Record<string, number>; // agent_name -> budget_usd (-1 = unlimited)
+}
+
 export function calculateCost(model: string, inputTokens: number, outputTokens: number): number {
   const modelLower = (model || '').toLowerCase();
   let matchedPrice: ModelPrice = { input: 1.00, output: 3.00 };
@@ -54,23 +59,32 @@ export function calculateCost(model: string, inputTokens: number, outputTokens: 
   return Number((inputCost + outputCost).toFixed(6));
 }
 
-// Daily Budget Management
-export function getDailyBudget(): number {
+// Budget Config Operations
+export function getBudgetConfig(): BudgetConfig {
   try {
     if (fs.existsSync(configPath)) {
       const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      return typeof data.daily_budget_usd === 'number' ? data.daily_budget_usd : 5.00;
+      return {
+        global_daily_budget_usd: typeof data.global_daily_budget_usd === 'number' ? data.global_daily_budget_usd : 5.00,
+        agent_budgets: data.agent_budgets || {}
+      };
     }
-  } catch (e) {
-    // Default fallback
-  }
-  return 5.00;
+  } catch (e) {}
+  return { global_daily_budget_usd: 5.00, agent_budgets: {} };
 }
 
-export function setDailyBudget(limitUsd: number): number {
-  const cleanLimit = Math.max(0.1, Number(limitUsd.toFixed(2)));
-  fs.writeFileSync(configPath, JSON.stringify({ daily_budget_usd: cleanLimit }, null, 2));
-  return cleanLimit;
+export function setDailyBudget(limitUsd: number, agent?: string): BudgetConfig {
+  const config = getBudgetConfig();
+  const cleanLimit = limitUsd <= 0 ? -1 : Math.max(0.1, Number(limitUsd.toFixed(2)));
+
+  if (agent && agent.trim()) {
+    config.agent_budgets[agent.toLowerCase().trim()] = cleanLimit;
+  } else {
+    config.global_daily_budget_usd = cleanLimit;
+  }
+
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  return config;
 }
 
 export function logTokenUsage(log: TokenLog) {
@@ -93,12 +107,17 @@ export interface StatsGroup {
 }
 
 export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
+  const config = getBudgetConfig();
   const stats = {
     global: { input_tokens: 0, output_tokens: 0, total_tokens: 0, estimated_cost_usd: 0 },
     providers: {} as Record<string, StatsGroup>,
     models: {} as Record<string, StatsGroup>,
-    daily_budget_usd: getDailyBudget(),
-    budget_used_percent: 0
+    budget: {
+      global_daily_usd: config.global_daily_budget_usd,
+      is_unlimited: config.global_daily_budget_usd <= 0,
+      used_percent: 0,
+      agent_budgets: config.agent_budgets
+    }
   };
 
   if (!fs.existsSync(dbPath)) {
@@ -163,9 +182,7 @@ export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
           stats.models[model].total_tokens += log.total_tokens || 0;
           stats.models[model].estimated_cost_usd += cost;
       }
-    } catch (e) {
-        // Ignore
-    }
+    } catch (e) {}
   }
 
   stats.global.estimated_cost_usd = Number(stats.global.estimated_cost_usd.toFixed(4));
@@ -176,14 +193,13 @@ export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
     stats.models[m].estimated_cost_usd = Number(stats.models[m].estimated_cost_usd.toFixed(4));
   }
 
-  if (period === 'today') {
-    stats.budget_used_percent = Number(((stats.global.estimated_cost_usd / stats.daily_budget_usd) * 100).toFixed(1));
+  if (period === 'today' && config.global_daily_budget_usd > 0) {
+    stats.budget.used_percent = Number(((stats.global.estimated_cost_usd / config.global_daily_budget_usd) * 100).toFixed(1));
   }
 
   return stats;
 }
 
-// Time-series helper for Charts
 export function getTimeSeriesStats() {
   const result = {
     labels: [] as string[],
@@ -198,7 +214,6 @@ export function getTimeSeriesStats() {
   const lines = fs.readFileSync(dbPath, 'utf-8').split('\n');
   const hourlyBucket: Record<string, { tokens: number, cost: number }> = {};
 
-  // Build 24 hour buckets for today
   const now = new Date();
   for (let i = 23; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 3600 * 1000);
@@ -213,7 +228,6 @@ export function getTimeSeriesStats() {
       const log: TokenLog = JSON.parse(line);
       if (!log.timestamp) continue;
       const logDate = new Date(log.timestamp);
-      // Only include logs within the last 24 hours
       if (now.getTime() - logDate.getTime() <= 24 * 3600 * 1000) {
         const hourKey = `${String(logDate.getHours()).padStart(2, '0')}:00`;
         if (hourlyBucket[hourKey]) {

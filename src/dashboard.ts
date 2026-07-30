@@ -72,9 +72,18 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         timeSeries: timeSeriesData
     });
 
+    const isUnlimited = today.budget.is_unlimited;
     let budgetColor = '#03dac6';
-    if (today.budget_used_percent >= 100) budgetColor = '#ff5252';
-    else if (today.budget_used_percent >= 80) budgetColor = '#ffb300';
+    if (!isUnlimited) {
+        if (today.budget.used_percent >= 100) budgetColor = '#ff5252';
+        else if (today.budget.used_percent >= 80) budgetColor = '#ffb300';
+    }
+
+    const budgetDisplayLabel = isUnlimited 
+        ? `$${today.global.estimated_cost_usd.toFixed(4)} USD (♾️ Unlimited Budget)` 
+        : `$${today.global.estimated_cost_usd.toFixed(4)} / $${today.budget.global_daily_usd.toFixed(2)} USD (${today.budget.used_percent}%)`;
+
+    const budgetFillWidth = isUnlimited ? 100 : Math.min(100, today.budget.used_percent);
 
     const html = `
     <!DOCTYPE html>
@@ -176,7 +185,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             }
             .status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: var(--secondary); box-shadow: 0 0 8px var(--secondary); }
 
-            /* Vector SVG Refresh Icon Styling */
             .svg-icon {
                 width: 14px;
                 height: 14px;
@@ -278,11 +286,11 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 
                 <div class="budget-box">
                     <div class="budget-header">
-                        <span>🎯 Daily Budget Usage</span>
-                        <span id="budget-text" style="color: ${budgetColor}">$${today.global.estimated_cost_usd.toFixed(4)} / $${today.daily_budget_usd.toFixed(2)} USD (${today.budget_used_percent}%)</span>
+                        <span>🎯 Daily Spending Budget</span>
+                        <span id="budget-text" style="color: ${budgetColor}">${budgetDisplayLabel}</span>
                     </div>
                     <div class="budget-track">
-                        <div id="budget-bar-fill" class="budget-fill" style="width: ${Math.min(100, today.budget_used_percent)}%; background-color: ${budgetColor};"></div>
+                        <div id="budget-bar-fill" class="budget-fill" style="width: ${budgetFillWidth}%; background-color: ${budgetColor};"></div>
                     </div>
                 </div>
 
@@ -436,18 +444,25 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 });
 
                 const todayData = statsData.today;
+                const isUnlimited = todayData.budget ? todayData.budget.is_unlimited : false;
                 let budgetColor = '#03dac6';
-                if (todayData.budget_used_percent >= 100) budgetColor = '#ff5252';
-                else if (todayData.budget_used_percent >= 80) budgetColor = '#ffb300';
+                if (!isUnlimited) {
+                    if (todayData.budget.used_percent >= 100) budgetColor = '#ff5252';
+                    else if (todayData.budget.used_percent >= 80) budgetColor = '#ffb300';
+                }
 
                 const budgetText = document.getElementById('budget-text');
                 const budgetFill = document.getElementById('budget-bar-fill');
                 if (budgetText) {
                     budgetText.style.color = budgetColor;
-                    budgetText.innerText = '$' + todayData.global.estimated_cost_usd.toFixed(4) + ' / $' + todayData.daily_budget_usd.toFixed(2) + ' USD (' + todayData.budget_used_percent + '%)';
+                    if (isUnlimited) {
+                        budgetText.innerText = '$' + todayData.global.estimated_cost_usd.toFixed(4) + ' USD (♾️ Unlimited Budget)';
+                    } else {
+                        budgetText.innerText = '$' + todayData.global.estimated_cost_usd.toFixed(4) + ' / $' + todayData.budget.global_daily_usd.toFixed(2) + ' USD (' + todayData.budget.used_percent + '%)';
+                    }
                 }
                 if (budgetFill) {
-                    budgetFill.style.width = Math.min(100, todayData.budget_used_percent) + '%';
+                    budgetFill.style.width = isUnlimited ? '100%' : Math.min(100, todayData.budget.used_percent) + '%';
                     budgetFill.style.backgroundColor = budgetColor;
                 }
 
