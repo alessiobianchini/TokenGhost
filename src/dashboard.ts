@@ -1,11 +1,12 @@
 import http from 'http';
-import { getTokenStats, getRecentLogs } from './db';
+import { getTokenStats, getRecentLogs, getTimeSeriesStats } from './db';
 
 export function handleDashboard(req: http.IncomingMessage, res: http.ServerResponse) {
     const today = getTokenStats('today');
     const yesterday = getTokenStats('yesterday');
     const all = getTokenStats('all');
     const recentLogs = getRecentLogs(100);
+    const timeSeriesData = getTimeSeriesStats();
 
     const providersSet = new Set<string>();
     Object.keys(all.providers).forEach(p => providersSet.add(p));
@@ -15,7 +16,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         filterButtonsHtml += `<button class="filter-btn" data-provider="${p}">${p.charAt(0).toUpperCase() + p.slice(1)}</button>`;
     }
 
-    // Prepare Activity Log rows
     let logsHtml = '';
     for (const log of recentLogs) {
         const rawTimestamp = log.timestamp || new Date().toISOString();
@@ -32,7 +32,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         else if (p.includes('ollama')) badgeColor = '#888888';
 
         logsHtml += `
-            <tr class="log-row" data-provider="${log.provider}">
+            <tr class="log-row" data-provider="${log.provider}" data-search="${log.provider} ${log.model} ${rawTimestamp}">
                 <td class="local-time" data-timestamp="${rawTimestamp}">-</td>
                 <td><span class="badge" style="background:${badgeColor}">${log.provider}</span></td>
                 <td style="color:#bbb; font-weight: 500;">${log.model || 'unknown'}</td>
@@ -48,7 +48,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         logsHtml = '<tr id="no-logs"><td colspan="7" style="text-align: center; color: #888; padding: 2.5rem;">No logs recorded yet. Start interacting with AI models!</td></tr>';
     }
 
-    // Prepare Model Breakdown rows for All-Time
     let modelsHtml = '';
     const sortedModels = Object.entries(all.models).sort((a, b) => b[1].total_tokens - a[1].total_tokens);
     for (const [modelName, mData] of sortedModels) {
@@ -69,8 +68,14 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
     const statsData = JSON.stringify({
         today: today,
         yesterday: yesterday,
-        all: all
+        all: all,
+        timeSeries: timeSeriesData
     });
+
+    // Budget gauge color
+    let budgetColor = '#03dac6'; // green
+    if (today.budget_used_percent >= 100) budgetColor = '#ff5252'; // red
+    else if (today.budget_used_percent >= 80) budgetColor = '#ffb300'; // yellow
 
     const html = `
     <!DOCTYPE html>
@@ -79,6 +84,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>TokenGhost Dashboard</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <style>
             :root {
                 --bg-color: #121214;
@@ -92,7 +98,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             * { box-sizing: border-box; }
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 0; }
             
-            /* Navbar */
             .navbar {
                 display: flex;
                 align-items: center;
@@ -120,10 +125,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 border-left: 1px solid var(--surface-border);
                 padding-left: 0.75rem;
             }
-            .nav-links {
-                display: flex;
-                gap: 0.5rem;
-            }
+            .nav-links { display: flex; gap: 0.5rem; }
             .nav-tab {
                 background: transparent;
                 border: none;
@@ -138,14 +140,27 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 align-items: center;
                 gap: 0.4rem;
             }
-            .nav-tab:hover {
+            .nav-tab:hover { color: var(--text-main); background: rgba(255, 255, 255, 0.05); }
+            .nav-tab.active { color: var(--primary); background: rgba(187, 134, 252, 0.12); }
+            
+            .actions-group { display: flex; align-items: center; gap: 1rem; }
+            .btn-export {
+                background: #25252b;
+                border: 1px solid var(--surface-border);
                 color: var(--text-main);
-                background: rgba(255, 255, 255, 0.05);
+                padding: 0.4rem 0.8rem;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 0.85rem;
+                cursor: pointer;
+                text-decoration: none;
+                transition: all 0.2s;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
             }
-            .nav-tab.active {
-                color: var(--primary);
-                background: rgba(187, 134, 252, 0.12);
-            }
+            .btn-export:hover { background: var(--primary); color: #000; }
+
             .status-badge {
                 display: flex;
                 align-items: center;
@@ -158,48 +173,41 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 border-radius: 20px;
                 font-weight: 600;
             }
-            .status-dot {
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                background-color: var(--secondary);
-                box-shadow: 0 0 8px var(--secondary);
-            }
+            .status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: var(--secondary); box-shadow: 0 0 8px var(--secondary); }
 
-            /* Container & Tab Views */
-            .main-container {
-                max-width: 1200px;
-                margin: 2rem auto;
-                padding: 0 1.5rem;
-            }
-            .tab-content {
-                display: none;
-                animation: fadeIn 0.25s ease;
-            }
-            .tab-content.active {
-                display: block;
-            }
-            @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(6px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
+            .main-container { max-width: 1200px; margin: 2rem auto; padding: 0 1.5rem; }
+            .tab-content { display: none; animation: fadeIn 0.25s ease; }
+            .tab-content.active { display: block; }
+            @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
-            /* Filters */
             .filters { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
             .filter-btn { background: var(--surface-color); border: 1px solid var(--surface-border); color: var(--text-muted); padding: 0.5rem 1rem; border-radius: 20px; cursor: pointer; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; text-transform: capitalize; }
             .filter-btn:hover { background: #25252b; color: var(--text-main); }
             .filter-btn.active { background: var(--primary); color: #000; border-color: var(--primary); }
 
-            /* Cards */
-            .card-container { display: flex; gap: 1.25rem; margin-bottom: 2rem; flex-wrap: wrap; }
-            .card { background: var(--surface-color); padding: 1.5rem; border-radius: 12px; flex: 1; min-width: 220px; border: 1px solid var(--surface-border); transition: transform 0.2s; }
-            .card:hover { transform: translateY(-2px); }
+            /* Cards & Budget */
+            .card-container { display: flex; gap: 1.25rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+            .card { background: var(--surface-color); padding: 1.5rem; border-radius: 12px; flex: 1; min-width: 220px; border: 1px solid var(--surface-border); }
             .card h3 { margin: 0 0 0.8rem 0; font-size: 1.1rem; color: var(--secondary); }
             .stat { font-size: 2.2rem; font-weight: 700; margin: 0; color: #fff; }
             .cost { font-size: 1.2rem; font-weight: 700; color: var(--secondary); margin-top: 0.4rem; }
             .sub-stats { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem; }
 
-            /* Tables */
+            /* Budget Bar */
+            .budget-box { background: var(--surface-color); border: 1px solid var(--surface-border); border-radius: 12px; padding: 1.25rem; margin-bottom: 2rem; }
+            .budget-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; font-weight: 600; font-size: 0.95rem; }
+            .budget-track { background: #121214; height: 12px; border-radius: 6px; overflow: hidden; border: 1px solid var(--surface-border); }
+            .budget-fill { height: 100%; transition: width 0.4s ease, background-color 0.4s ease; }
+
+            /* Chart Card */
+            .chart-card { background: var(--surface-color); border: 1px solid var(--surface-border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
+            .chart-card h3 { margin: 0 0 1rem 0; font-size: 1.1rem; color: var(--primary); }
+
+            /* Search bar & Table */
+            .table-header-tools { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem; }
+            .search-input { background: var(--surface-color); border: 1px solid var(--surface-border); color: var(--text-main); padding: 0.6rem 1rem; border-radius: 20px; font-size: 0.9rem; min-width: 280px; outline: none; transition: border-color 0.2s; }
+            .search-input:focus { border-color: var(--primary); }
+
             .table-wrapper { background: var(--surface-color); border-radius: 12px; overflow: hidden; border: 1px solid var(--surface-border); }
             table { width: 100%; border-collapse: collapse; text-align: left; }
             th, td { padding: 1rem 1.25rem; border-bottom: 1px solid var(--surface-border); }
@@ -211,7 +219,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             .cost-col { color: var(--secondary); font-weight: 700; }
             .badge { padding: 0.25rem 0.65rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; color: white; text-transform: uppercase; }
 
-            /* Guide */
             .instructions { background: var(--surface-color); padding: 2rem; border-radius: 12px; border: 1px solid var(--surface-border); }
             .instructions h3 { margin-top: 0; color: var(--primary); }
             .endpoint-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 1rem; }
@@ -236,9 +243,13 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 <button class="nav-tab" onclick="switchTab('guide')">⚙️ Setup Guide</button>
             </div>
 
-            <div class="status-badge">
-                <div class="status-dot"></div>
-                Proxy Active
+            <div class="actions-group">
+                <a href="/export/csv" class="btn-export">📥 Export CSV</a>
+                <a href="/export/json" class="btn-export">📥 Export JSON</a>
+                <div class="status-badge">
+                    <div class="status-dot"></div>
+                    Proxy Active
+                </div>
             </div>
         </nav>
 
@@ -246,6 +257,18 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
 
             <!-- TAB 1: OVERVIEW -->
             <div id="tab-overview" class="tab-content active">
+                
+                <!-- Daily Budget Gauge -->
+                <div class="budget-box">
+                    <div class="budget-header">
+                        <span>🎯 Daily Budget Usage</span>
+                        <span style="color: ${budgetColor}">$${today.global.estimated_cost_usd.toFixed(4)} / $${today.daily_budget_usd.toFixed(2)} USD (${today.budget_used_percent}%)</span>
+                    </div>
+                    <div class="budget-track">
+                        <div class="budget-fill" style="width: ${Math.min(100, today.budget_used_percent)}%; background-color: ${budgetColor};"></div>
+                    </div>
+                </div>
+
                 <div class="filters" id="provider-filters">
                     ${filterButtonsHtml}
                 </div>
@@ -269,6 +292,12 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                         <div class="cost" id="stat-all-cost">$${all.global.estimated_cost_usd.toFixed(4)} USD</div>
                         <div class="sub-stats" id="stat-all-sub">In: ${all.global.input_tokens.toLocaleString()} | Out: ${all.global.output_tokens.toLocaleString()}</div>
                     </div>
+                </div>
+
+                <!-- Usage Chart -->
+                <div class="chart-card">
+                    <h3>📈 Hourly Token Usage (Last 24 Hours)</h3>
+                    <canvas id="usageChart" height="90"></canvas>
                 </div>
             </div>
 
@@ -295,7 +324,11 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
 
             <!-- TAB 3: LOGS -->
             <div id="tab-logs" class="tab-content">
-                <h2 style="margin-top:0;">📋 Recent Activity Logs</h2>
+                <div class="table-header-tools">
+                    <h2 style="margin:0;">📋 Recent Activity Logs</h2>
+                    <input type="text" id="search-input" class="search-input" placeholder="🔍 Search model, provider, date...">
+                </div>
+
                 <div class="table-wrapper">
                     <table>
                         <thead>
@@ -309,7 +342,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                                 <th style="text-align: right;">Est. Cost</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="logs-body">
                             ${logsHtml}
                         </tbody>
                     </table>
@@ -387,26 +420,39 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                     document.getElementById('stat-' + p + '-sub').innerText = 'In: ' + data.input_tokens.toLocaleString() + ' | Out: ' + data.output_tokens.toLocaleString();
                 });
 
+                filterLogs();
+            }
+
+            // Real-time Search & Filter
+            function filterLogs() {
+                const query = (document.getElementById('search-input')?.value || '').toLowerCase();
+                const activeBtn = document.querySelector('.filter-btn.active');
+                const selectedProvider = activeBtn ? activeBtn.getAttribute('data-provider') : 'all';
+
                 const rows = document.querySelectorAll('.log-row');
                 let visibleCount = 0;
                 rows.forEach(row => {
-                    if (provider === 'all' || row.getAttribute('data-provider') === provider) {
+                    const rowProvider = row.getAttribute('data-provider') || '';
+                    const searchData = (row.getAttribute('data-search') || '').toLowerCase();
+
+                    const matchesProvider = (selectedProvider === 'all' || rowProvider === selectedProvider);
+                    const matchesSearch = query === '' || searchData.includes(query);
+
+                    if (matchesProvider && matchesSearch) {
                         row.style.display = '';
                         visibleCount++;
                     } else {
                         row.style.display = 'none';
                     }
                 });
-                
+
                 const noLogs = document.getElementById('no-logs');
                 if (noLogs) {
-                    if (visibleCount === 0 && rows.length > 0) {
-                        noLogs.style.display = '';
-                    } else {
-                        noLogs.style.display = 'none';
-                    }
+                    noLogs.style.display = visibleCount === 0 ? '' : 'none';
                 }
             }
+
+            document.getElementById('search-input')?.addEventListener('input', filterLogs);
 
             document.querySelectorAll('.filter-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
@@ -428,6 +474,36 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                     }
                 }
             });
+
+            // Render Chart.js
+            if (window.Chart && statsData.timeSeries) {
+                const ctx = document.getElementById('usageChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: statsData.timeSeries.labels,
+                        datasets: [{
+                            label: 'Total Tokens',
+                            data: statsData.timeSeries.tokens,
+                            borderColor: '#bb86fc',
+                            backgroundColor: 'rgba(187, 134, 252, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { labels: { color: '#e0e0e6' } }
+                        },
+                        scales: {
+                            x: { ticks: { color: '#888894' }, grid: { color: '#2a2a30' } },
+                            y: { ticks: { color: '#888894' }, grid: { color: '#2a2a30' } }
+                        }
+                    }
+                });
+            }
         </script>
     </body>
     </html>

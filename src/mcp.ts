@@ -1,19 +1,21 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { getTokenStats, getRecentLogs, logTokenUsage, clearTokenLogs } from "./db";
+import { getTokenStats, getRecentLogs, logTokenUsage, clearTokenLogs, setDailyBudget, getLogsAsCsv, getLogsAsJson } from "./db";
 import { getActivePort } from "./proxy";
+import fs from 'fs';
+import path from 'path';
 
 export async function startMcpServer() {
     const server = new McpServer({
         name: "TokenGhost",
-        version: "1.1.0"
+        version: "1.2.0"
     });
 
     // 1. Tool: get_token_stats
     server.tool(
         "get_token_stats",
-        "Get AI token consumption stats, model breakdowns, and estimated USD costs.",
+        "Get AI token consumption stats, model breakdowns, estimated USD costs, and budget status.",
         {
             period: z.enum(["today", "yesterday", "all"]).describe("The period to get stats for.")
         },
@@ -25,7 +27,17 @@ export async function startMcpServer() {
                 text += `• Total Cost: $${stats.global.estimated_cost_usd.toFixed(4)} USD\n`;
                 text += `• Input Tokens: ${stats.global.input_tokens.toLocaleString()}\n`;
                 text += `• Output Tokens: ${stats.global.output_tokens.toLocaleString()}\n`;
-                text += `• Total Tokens: ${stats.global.total_tokens.toLocaleString()}\n\n`;
+                text += `• Total Tokens: ${stats.global.total_tokens.toLocaleString()}\n`;
+
+                if (period === 'today') {
+                    text += `• Daily Budget: $${stats.daily_budget_usd.toFixed(2)} USD (${stats.budget_used_percent}% used)\n`;
+                    if (stats.budget_used_percent >= 100) {
+                        text += `🚨 WARNING: Daily spending budget EXCEEDED! ($${stats.global.estimated_cost_usd.toFixed(4)} / $${stats.daily_budget_usd.toFixed(2)})\n`;
+                    } else if (stats.budget_used_percent >= 80) {
+                        text += `⚠️ ALERT: 80%+ of daily spending budget reached! ($${stats.global.estimated_cost_usd.toFixed(4)} / $${stats.daily_budget_usd.toFixed(2)})\n`;
+                    }
+                }
+                text += `\n`;
 
                 if (Object.keys(stats.providers).length > 0) {
                     text += `📦 Breakdown by Provider:\n`;
@@ -53,7 +65,54 @@ export async function startMcpServer() {
         }
     );
 
-    // 2. Tool: log_token_usage
+    // 2. Tool: set_daily_budget
+    server.tool(
+        "set_daily_budget",
+        "Set the daily USD spending budget limit for TokenGhost alerts.",
+        {
+            limit_usd: z.number().describe("The daily USD spend limit (e.g. 5.00)")
+        },
+        async ({ limit_usd }) => {
+            try {
+                const newLimit = setDailyBudget(limit_usd);
+                return {
+                    content: [{ type: "text", text: `🎯 Daily spending budget updated to $${newLimit.toFixed(2)} USD.` }]
+                };
+            } catch (error: any) {
+                return {
+                    content: [{ type: "text", text: `Error: ${error.message}` }]
+                };
+            }
+        }
+    );
+
+    // 3. Tool: export_token_logs
+    server.tool(
+        "export_token_logs",
+        "Export token logs to CSV or JSON format.",
+        {
+            format: z.enum(["csv", "json"]).optional().default("csv").describe("Export format (csv or json)")
+        },
+        async ({ format }) => {
+            try {
+                const exportDir = process.cwd();
+                const fileName = `tokenghost_export_${Date.now()}.${format}`;
+                const filePath = path.join(exportDir, fileName);
+                const content = format === 'csv' ? getLogsAsCsv() : getLogsAsJson();
+                
+                fs.writeFileSync(filePath, content, 'utf-8');
+                return {
+                    content: [{ type: "text", text: `📥 Token logs successfully exported to ${filePath}` }]
+                };
+            } catch (error: any) {
+                return {
+                    content: [{ type: "text", text: `Error: ${error.message}` }]
+                };
+            }
+        }
+    );
+
+    // 4. Tool: log_token_usage
     server.tool(
         "log_token_usage",
         "Log estimated tokens used in an interaction.",
@@ -83,7 +142,7 @@ export async function startMcpServer() {
         }
     );
 
-    // 3. Tool: get_recent_logs
+    // 5. Tool: get_recent_logs
     server.tool(
         "get_recent_logs",
         "Get the most recent individual token consumption logs.",
@@ -108,7 +167,7 @@ export async function startMcpServer() {
         }
     );
 
-    // 4. Tool: open_dashboard
+    // 6. Tool: open_dashboard
     server.tool(
         "open_dashboard",
         "Open the TokenGhost dashboard GUI in the user's default web browser.",
@@ -136,7 +195,7 @@ export async function startMcpServer() {
         }
     );
 
-    // 5. Tool: clear_token_logs
+    // 7. Tool: clear_token_logs
     server.tool(
         "clear_token_logs",
         "Clear all logged token usage data.",
@@ -155,7 +214,7 @@ export async function startMcpServer() {
         }
     );
 
-    // MCP Resource: Today's Stats
+    // MCP Resource: Today's Stats & Budget
     server.resource(
         "today-stats",
         "tokenghost://stats/today",
@@ -164,13 +223,12 @@ export async function startMcpServer() {
             return {
                 contents: [{
                     uri: uri.href,
-                    text: `Token Usage (Today): ${stats.global.total_tokens.toLocaleString()} tokens | Est. Cost: $${stats.global.estimated_cost_usd.toFixed(4)} USD`
+                    text: `Token Usage (Today): ${stats.global.total_tokens.toLocaleString()} tokens | Cost: $${stats.global.estimated_cost_usd.toFixed(4)} USD | Budget: $${stats.daily_budget_usd.toFixed(2)} USD (${stats.budget_used_percent}% used)`
                 }]
             };
         }
     );
 
-    // Connect it to stdio
     const transport = new StdioServerTransport();
     await server.connect(transport);
 }

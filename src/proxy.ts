@@ -1,16 +1,14 @@
 import http from 'http';
 import httpProxy from 'http-proxy';
-import { logTokenUsage } from './db';
+import { logTokenUsage, getLogsAsCsv, getLogsAsJson } from './db';
 import { handleDashboard } from './dashboard';
 
-// Active port tracker so open_dashboard always targets the real running port
 let activeProxyPort = 8338;
 
 export function getActivePort(): number {
   return activeProxyPort;
 }
 
-// Create the proxy server
 const proxy = httpProxy.createProxyServer({
   secure: false,
   changeOrigin: true
@@ -35,11 +33,31 @@ export function startProxy(port: number) {
         return handleDashboard(req, res);
     }
 
-    // 2. Proxy Routing
+    // 2. Export Endpoints
+    if (req.url === '/export/csv') {
+      const csv = getLogsAsCsv();
+      res.writeHead(200, {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': 'attachment; filename="tokenghost_logs.csv"'
+      });
+      res.end(csv);
+      return;
+    }
+
+    if (req.url === '/export/json') {
+      const json = getLogsAsJson();
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Disposition': 'attachment; filename="tokenghost_logs.json"'
+      });
+      res.end(json);
+      return;
+    }
+
+    // 3. Proxy Routing
     let target = '';
     let provider = 'unknown';
     
-    // Support URL routing
     if (req.url?.startsWith('/openai/')) {
       target = 'https://api.openai.com';
       req.url = req.url.replace('/openai', '');
@@ -72,15 +90,12 @@ export function startProxy(port: number) {
       target = 'https://api.anthropic.com';
       provider = req.headers['x-provider'] as string;
     } else {
-      // Default fallback
       target = 'https://api.anthropic.com';
       provider = 'anthropic';
     }
 
-    // Inject provider info into the request object
     (req as any).__provider = provider;
 
-    // Handle CORS preflight
     if (req.method === 'OPTIONS') {
         res.writeHead(204, {
             'Access-Control-Allow-Origin': '*',
@@ -91,14 +106,10 @@ export function startProxy(port: number) {
         return;
     }
 
-    // Add CORS headers to all responses
     res.setHeader('Access-Control-Allow-Origin', '*');
-
-    // Forward the request
     proxy.web(req, res, { target });
   });
 
-  // 3. The Zero-Latency Sniffer
   proxy.on('proxyRes', (proxyRes, req, res) => {
     const provider = (req as any).__provider || 'unknown';
     let buffer = '';
@@ -112,7 +123,6 @@ export function startProxy(port: number) {
            let input_tokens = 0;
            let output_tokens = 0;
 
-           // Extract model name
            const modelMatch = buffer.match(/"model"\s*:\s*"([^"]+)"/);
            const model = modelMatch ? modelMatch[1] : 'unknown';
 
@@ -154,9 +164,7 @@ export function startProxy(port: number) {
                });
                console.log(`[TokenGhost] 👻 Logged ${input_tokens} In, ${output_tokens} Out | Model: ${model} | Provider: ${provider}`);
            }
-        } catch(e) {
-            // Fails gracefully
-        }
+        } catch(e) {}
     });
   });
 

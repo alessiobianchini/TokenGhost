@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 const dbPath = path.join(__dirname, '..', 'token_logs.jsonl');
+const configPath = path.join(__dirname, '..', 'budget_config.json');
 
 export interface TokenLog {
   provider: string;
@@ -20,34 +21,26 @@ interface ModelPrice {
 }
 
 const PRICING: Record<string, ModelPrice> = {
-  // Anthropic
   'claude-3-5-sonnet': { input: 3.00, output: 15.00 },
   'claude-3-haiku': { input: 0.25, output: 1.25 },
   'claude-3-opus': { input: 15.00, output: 75.00 },
-  // OpenAI
   'gpt-4o': { input: 2.50, output: 10.00 },
   'gpt-4o-mini': { input: 0.15, output: 0.60 },
   'o1': { input: 15.00, output: 60.00 },
   'o3-mini': { input: 1.10, output: 4.40 },
-  // Gemini
   'gemini-1.5-pro': { input: 1.25, output: 5.00 },
   'gemini-1.5-flash': { input: 0.075, output: 0.30 },
   'gemini-2.0-flash': { input: 0.10, output: 0.40 },
   'gemini-3.1-pro': { input: 1.25, output: 5.00 },
   'gemini-3.6-flash': { input: 0.10, output: 0.40 },
-  // DeepSeek
   'deepseek-chat': { input: 0.14, output: 0.28 },
   'deepseek-reasoner': { input: 0.55, output: 2.19 },
-  // Groq
   'llama-3.3-70b': { input: 0.59, output: 0.79 },
 };
 
-/**
- * Calculates estimated USD cost for given token counts and model name.
- */
 export function calculateCost(model: string, inputTokens: number, outputTokens: number): number {
   const modelLower = (model || '').toLowerCase();
-  let matchedPrice: ModelPrice = { input: 1.00, output: 3.00 }; // sensible default fallback
+  let matchedPrice: ModelPrice = { input: 1.00, output: 3.00 };
 
   for (const [key, price] of Object.entries(PRICING)) {
     if (modelLower.includes(key)) {
@@ -61,9 +54,25 @@ export function calculateCost(model: string, inputTokens: number, outputTokens: 
   return Number((inputCost + outputCost).toFixed(6));
 }
 
-/**
- * Aggiunge in maniera asincrona il log al file senza bloccare il thread principale.
- */
+// Daily Budget Management
+export function getDailyBudget(): number {
+  try {
+    if (fs.existsSync(configPath)) {
+      const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      return typeof data.daily_budget_usd === 'number' ? data.daily_budget_usd : 5.00;
+    }
+  } catch (e) {
+    // Default fallback
+  }
+  return 5.00;
+}
+
+export function setDailyBudget(limitUsd: number): number {
+  const cleanLimit = Math.max(0.1, Number(limitUsd.toFixed(2)));
+  fs.writeFileSync(configPath, JSON.stringify({ daily_budget_usd: cleanLimit }, null, 2));
+  return cleanLimit;
+}
+
 export function logTokenUsage(log: TokenLog) {
   log.timestamp = new Date().toISOString();
   if (log.estimated_cost_usd === undefined) {
@@ -72,7 +81,7 @@ export function logTokenUsage(log: TokenLog) {
   const line = JSON.stringify(log) + '\n';
   
   fs.appendFile(dbPath, line, (err) => {
-    if (err) console.error('[TokenGhost] Errore nel salvataggio del log:', err);
+    if (err) console.error('[TokenGhost] Error saving log:', err);
   });
 }
 
@@ -83,14 +92,13 @@ export interface StatsGroup {
   estimated_cost_usd: number;
 }
 
-/**
- * Legge e calcola le statistiche. 
- */
 export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
   const stats = {
     global: { input_tokens: 0, output_tokens: 0, total_tokens: 0, estimated_cost_usd: 0 },
     providers: {} as Record<string, StatsGroup>,
-    models: {} as Record<string, StatsGroup>
+    models: {} as Record<string, StatsGroup>,
+    daily_budget_usd: getDailyBudget(),
+    budget_used_percent: 0
   };
 
   if (!fs.existsSync(dbPath)) {
@@ -156,7 +164,7 @@ export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
           stats.models[model].estimated_cost_usd += cost;
       }
     } catch (e) {
-        // Ignora righe corrotte
+        // Ignore
     }
   }
 
@@ -168,12 +176,62 @@ export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
     stats.models[m].estimated_cost_usd = Number(stats.models[m].estimated_cost_usd.toFixed(4));
   }
 
+  if (period === 'today') {
+    stats.budget_used_percent = Number(((stats.global.estimated_cost_usd / stats.daily_budget_usd) * 100).toFixed(1));
+  }
+
   return stats;
 }
 
-/**
- * Legge le chiamate singole più recenti per la sezione di logging.
- */
+// Time-series helper for Charts
+export function getTimeSeriesStats() {
+  const result = {
+    labels: [] as string[],
+    tokens: [] as number[],
+    costs: [] as number[]
+  };
+
+  if (!fs.existsSync(dbPath)) {
+    return result;
+  }
+
+  const lines = fs.readFileSync(dbPath, 'utf-8').split('\n');
+  const hourlyBucket: Record<string, { tokens: number, cost: number }> = {};
+
+  // Build 24 hour buckets for today
+  const now = new Date();
+  for (let i = 23; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 3600 * 1000);
+    const hourKey = `${String(d.getHours()).padStart(2, '0')}:00`;
+    hourlyBucket[hourKey] = { tokens: 0, cost: 0 };
+    result.labels.push(hourKey);
+  }
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    try {
+      const log: TokenLog = JSON.parse(line);
+      if (!log.timestamp) continue;
+      const logDate = new Date(log.timestamp);
+      // Only include logs within the last 24 hours
+      if (now.getTime() - logDate.getTime() <= 24 * 3600 * 1000) {
+        const hourKey = `${String(logDate.getHours()).padStart(2, '0')}:00`;
+        if (hourlyBucket[hourKey]) {
+          hourlyBucket[hourKey].tokens += log.total_tokens || 0;
+          hourlyBucket[hourKey].cost += log.estimated_cost_usd || calculateCost(log.model, log.input_tokens, log.output_tokens);
+        }
+      }
+    } catch (e) {}
+  }
+
+  for (const label of result.labels) {
+    result.tokens.push(hourlyBucket[label]?.tokens || 0);
+    result.costs.push(Number((hourlyBucket[label]?.cost || 0).toFixed(4)));
+  }
+
+  return result;
+}
+
 export function getRecentLogs(limit: number = 50): TokenLog[] {
   if (!fs.existsSync(dbPath)) {
     return [];
@@ -189,17 +247,36 @@ export function getRecentLogs(limit: number = 50): TokenLog[] {
         log.estimated_cost_usd = calculateCost(log.model || 'unknown', log.input_tokens || 0, log.output_tokens || 0);
       }
       logs.push(log);
-    } catch (e) {
-      // Ignora righe corrotte
-    }
+    } catch (e) {}
   }
 
   return logs;
 }
 
-/**
- * Cancella completamente i log dei token.
- */
+export function getLogsAsCsv(): string {
+  if (!fs.existsSync(dbPath)) {
+    return 'Timestamp,Provider,Model,InputTokens,OutputTokens,TotalTokens,EstimatedCostUSD\n';
+  }
+
+  const lines = fs.readFileSync(dbPath, 'utf-8').split('\n').filter(l => l.trim() !== '');
+  let csv = 'Timestamp,Provider,Model,InputTokens,OutputTokens,TotalTokens,EstimatedCostUSD\n';
+  
+  for (const line of lines) {
+    try {
+      const log: TokenLog = JSON.parse(line);
+      const cost = log.estimated_cost_usd ?? calculateCost(log.model || 'unknown', log.input_tokens || 0, log.output_tokens || 0);
+      csv += `"${log.timestamp || ''}","${log.provider || ''}","${log.model || ''}",${log.input_tokens || 0},${log.output_tokens || 0},${log.total_tokens || 0},${cost.toFixed(6)}\n`;
+    } catch (e) {}
+  }
+
+  return csv;
+}
+
+export function getLogsAsJson(): string {
+  const logs = getRecentLogs(1000);
+  return JSON.stringify(logs, null, 2);
+}
+
 export function clearTokenLogs() {
   if (fs.existsSync(dbPath)) {
     fs.writeFileSync(dbPath, '');
