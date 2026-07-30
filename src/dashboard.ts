@@ -83,6 +83,23 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
     if (modelsHtml === '') {
         modelsHtml = '<tr><td colspan="6" style="text-align: center; color: #888; padding: 2rem;">No model data available yet.</td></tr>';
     }
+    
+    let agentsHtml = '';
+    const sortedAgents = Object.entries(all.agents || {}).sort((a, b) => b[1].total_tokens - a[1].total_tokens);
+    for (const [agentName, aData] of sortedAgents) {
+        agentsHtml += `
+            <tr>
+                <td style="color: #bb86fc; font-weight: 600;">${agentName}</td>
+                <td class="num">${aData.input_tokens.toLocaleString()}</td>
+                <td class="num">${aData.output_tokens.toLocaleString()}</td>
+                <td class="num total-col">${aData.total_tokens.toLocaleString()}</td>
+                <td class="num cost-col">$${aData.estimated_cost_usd.toFixed(4)} USD</td>
+            </tr>
+        `;
+    }
+    if (agentsHtml === '') {
+        agentsHtml = '<tr><td colspan="5" style="text-align: center; color: #888; padding: 2rem;">No agent/project data available yet.</td></tr>';
+    }
 
     const statsData = JSON.stringify({
         today: today,
@@ -279,7 +296,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
 
             <div class="nav-links">
                 <button class="nav-tab active" onclick="switchTab('overview')">📊 Overview</button>
-                <button class="nav-tab" onclick="switchTab('models')">🤖 Models & Ranking</button>
+                <button class="nav-tab" onclick="switchTab('models')">🤖 Models & Projects</button>
                 <button class="nav-tab" onclick="switchTab('logs')">📋 Activity Log</button>
                 <button class="nav-tab" onclick="switchTab('guide')">⚙️ Setup Guide</button>
             </div>
@@ -359,10 +376,10 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 </div>
             </div>
 
-            <!-- TAB 2: MODELS -->
+            <!-- TAB 2: MODELS & PROJECTS -->
             <div id="tab-models" class="tab-content">
                 <h2 style="margin-top:0;">🤖 Model Consumption & Value Benchmark</h2>
-                <div class="table-wrapper">
+                <div class="table-wrapper" style="margin-bottom: 2rem;">
                     <table>
                         <thead>
                             <tr>
@@ -376,6 +393,24 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                         </thead>
                         <tbody id="models-body">
                             ${modelsHtml}
+                        </tbody>
+                    </table>
+                </div>
+
+                <h2>🏢 Top Projects / Agents by Cost</h2>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Project / Agent</th>
+                                <th style="text-align: right;">Input Tokens</th>
+                                <th style="text-align: right;">Output Tokens</th>
+                                <th style="text-align: right;">Total Tokens</th>
+                                <th style="text-align: right;">Estimated Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody id="agents-body">
+                            ${agentsHtml}
                         </tbody>
                     </table>
                 </div>

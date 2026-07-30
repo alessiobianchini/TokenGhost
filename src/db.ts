@@ -132,6 +132,7 @@ export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
     global: { input_tokens: 0, output_tokens: 0, total_tokens: 0, cached_tokens: 0, estimated_cost_usd: 0, saved_cost_usd: 0, security_warnings_count: 0 },
     providers: {} as Record<string, StatsGroup>,
     models: {} as Record<string, StatsGroup>,
+    agents: {} as Record<string, StatsGroup>,
     budget: {
       global_daily_usd: config.global_daily_budget_usd,
       is_unlimited: config.global_daily_budget_usd <= 0,
@@ -214,6 +215,17 @@ export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
           stats.models[model].cached_tokens += cached;
           stats.models[model].estimated_cost_usd += cost;
           stats.models[model].saved_cost_usd += saved;
+
+          const agent = log.agent || 'unknown';
+          if (!stats.agents[agent]) {
+              stats.agents[agent] = { input_tokens: 0, output_tokens: 0, total_tokens: 0, cached_tokens: 0, estimated_cost_usd: 0, saved_cost_usd: 0 };
+          }
+          stats.agents[agent].input_tokens += log.input_tokens || 0;
+          stats.agents[agent].output_tokens += log.output_tokens || 0;
+          stats.agents[agent].total_tokens += log.total_tokens || 0;
+          stats.agents[agent].cached_tokens += cached;
+          stats.agents[agent].estimated_cost_usd += cost;
+          stats.agents[agent].saved_cost_usd += saved;
       }
     } catch (e) {}
   }
@@ -228,6 +240,10 @@ export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
   for (const m of Object.keys(stats.models)) {
     stats.models[m].estimated_cost_usd = Number(stats.models[m].estimated_cost_usd.toFixed(4));
     stats.models[m].saved_cost_usd = Number(stats.models[m].saved_cost_usd.toFixed(4));
+  }
+  for (const a of Object.keys(stats.agents)) {
+    stats.agents[a].estimated_cost_usd = Number(stats.agents[a].estimated_cost_usd.toFixed(4));
+    stats.agents[a].saved_cost_usd = Number(stats.agents[a].saved_cost_usd.toFixed(4));
   }
 
   if (period === 'today' && config.global_daily_budget_usd > 0) {

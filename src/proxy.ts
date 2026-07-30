@@ -8,6 +8,9 @@ let currentServerInstance: http.Server | null = null;
 let proxyResListenerRegistered = false;
 const recentLogFingerprints = new Map<string, number>();
 const LOG_DEDUP_WINDOW_MS = 1500;
+const BIND_RETRY_BASE_MS = 250;
+const BIND_RETRY_MAX_MS = 5000;
+const BIND_RETRY_LOG_EVERY = 5;
 
 export function getActivePort(): number {
   return activeProxyPort;
@@ -178,6 +181,49 @@ export function startProxy(port: number) {
     } catch (e) {}
   }
 
+  let bindRetryAttempt = 0;
+  let bindRetryTimer: NodeJS.Timeout | null = null;
+
+  const clearBindRetryTimer = () => {
+    if (bindRetryTimer) {
+      clearTimeout(bindRetryTimer);
+      bindRetryTimer = null;
+    }
+  };
+
+  const scheduleBindRetry = () => {
+    if (bindRetryTimer || currentServerInstance !== server) {
+      return;
+    }
+
+    const exp = Math.min(bindRetryAttempt, 5);
+    const baseDelay = Math.min(BIND_RETRY_MAX_MS, BIND_RETRY_BASE_MS * Math.pow(2, exp));
+    const jitter = Math.floor(Math.random() * 150);
+    const delay = baseDelay + jitter;
+
+    if (bindRetryAttempt === 0 || bindRetryAttempt % BIND_RETRY_LOG_EVERY === 0) {
+      console.error(`[TokenGhost] ⚠️ Port ${port} busy. Retry ${bindRetryAttempt + 1} in ${delay}ms.`);
+    }
+
+    bindRetryTimer = setTimeout(() => {
+      bindRetryTimer = null;
+      if (currentServerInstance !== server || server.listening) {
+        return;
+      }
+
+      bindRetryAttempt++;
+      try {
+        server.listen(port);
+      } catch (e: any) {
+        if (e?.code === 'EADDRINUSE') {
+          scheduleBindRetry();
+        } else {
+          console.error('[TokenGhost Proxy] Listen error:', e);
+        }
+      }
+    }, delay);
+  };
+
   const server = http.createServer((req, res) => {
     // 1. Dashboard Endpoint
     if (req.url === '/' || req.url === '/stats') {
@@ -197,6 +243,21 @@ export function startProxy(port: number) {
         'Access-Control-Allow-Origin': '*'
       });
       res.end(JSON.stringify({ today, yesterday, all, recentLogs, timeSeriesData }));
+      return;
+    }
+
+    if (req.url === '/api/health') {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify({
+        ok: true,
+        pid: process.pid,
+        listening: server.listening,
+        port: activeProxyPort,
+        bindRetryAttempt
+      }));
       return;
     }
 
@@ -313,15 +374,15 @@ export function startProxy(port: number) {
 
   server.on('error', (e: any) => {
     if (e.code === 'EADDRINUSE') {
-      console.error(`[TokenGhost] ⚠️ Port ${port} is already in use. Retrying on a random available port...`);
-      server.close();
-      server.listen(0);
+      scheduleBindRetry();
     } else {
       console.error('[TokenGhost Proxy] Server error:', e);
     }
   });
 
   server.on('listening', () => {
+    clearBindRetryTimer();
+    bindRetryAttempt = 0;
     const address = server.address();
     const boundPort = typeof address === 'object' && address ? address.port : port;
     activeProxyPort = boundPort;
@@ -330,10 +391,22 @@ export function startProxy(port: number) {
     console.log(`📊 Dashboard available at http://localhost:${portLabel}/stats\n`);
   });
 
+  server.on('close', () => {
+    clearBindRetryTimer();
+  });
+
   currentServerInstance = server;
   server.requestTimeout = 60_000;
   server.headersTimeout = 65_000;
-  server.listen(port);
+  try {
+    server.listen(port);
+  } catch (e: any) {
+    if (e?.code === 'EADDRINUSE') {
+      scheduleBindRetry();
+    } else {
+      console.error('[TokenGhost Proxy] Startup listen error:', e);
+    }
+  }
 
   return server;
 }
