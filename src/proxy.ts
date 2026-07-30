@@ -1,6 +1,6 @@
 import http from 'http';
 import httpProxy from 'http-proxy';
-import { logTokenUsage, getLogsAsCsv, getLogsAsJson } from './db';
+import { logTokenUsage, getLogsAsCsv, getLogsAsJson, getTokenStats, getRecentLogs, getTimeSeriesStats } from './db';
 import { handleDashboard } from './dashboard';
 
 let activeProxyPort = 8338;
@@ -33,7 +33,23 @@ export function startProxy(port: number) {
         return handleDashboard(req, res);
     }
 
-    // 2. Export Endpoints
+    // 2. JSON Stats API for Live Auto-Refresh
+    if (req.url === '/api/stats') {
+      const today = getTokenStats('today');
+      const yesterday = getTokenStats('yesterday');
+      const all = getTokenStats('all');
+      const recentLogs = getRecentLogs(100);
+      const timeSeriesData = getTimeSeriesStats();
+
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify({ today, yesterday, all, recentLogs, timeSeriesData }));
+      return;
+    }
+
+    // 3. Export Endpoints
     if (req.url === '/export/csv') {
       const csv = getLogsAsCsv();
       res.writeHead(200, {
@@ -54,7 +70,7 @@ export function startProxy(port: number) {
       return;
     }
 
-    // 3. Proxy Routing
+    // 4. Proxy Routing
     let target = '';
     let provider = 'unknown';
     

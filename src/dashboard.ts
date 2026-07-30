@@ -72,10 +72,9 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         timeSeries: timeSeriesData
     });
 
-    // Budget gauge color
-    let budgetColor = '#03dac6'; // green
-    if (today.budget_used_percent >= 100) budgetColor = '#ff5252'; // red
-    else if (today.budget_used_percent >= 80) budgetColor = '#ffb300'; // yellow
+    let budgetColor = '#03dac6';
+    if (today.budget_used_percent >= 100) budgetColor = '#ff5252';
+    else if (today.budget_used_percent >= 80) budgetColor = '#ffb300';
 
     const html = `
     <!DOCTYPE html>
@@ -143,12 +142,12 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             .nav-tab:hover { color: var(--text-main); background: rgba(255, 255, 255, 0.05); }
             .nav-tab.active { color: var(--primary); background: rgba(187, 134, 252, 0.12); }
             
-            .actions-group { display: flex; align-items: center; gap: 1rem; }
-            .btn-export {
+            .actions-group { display: flex; align-items: center; gap: 0.75rem; }
+            .btn-action {
                 background: #25252b;
                 border: 1px solid var(--surface-border);
                 color: var(--text-main);
-                padding: 0.4rem 0.8rem;
+                padding: 0.45rem 0.85rem;
                 border-radius: 6px;
                 font-weight: 600;
                 font-size: 0.85rem;
@@ -159,7 +158,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 align-items: center;
                 gap: 0.4rem;
             }
-            .btn-export:hover { background: var(--primary); color: #000; }
+            .btn-action:hover { background: var(--primary); color: #000; border-color: var(--primary); }
 
             .status-badge {
                 display: flex;
@@ -169,7 +168,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 color: var(--secondary);
                 background: rgba(3, 218, 198, 0.1);
                 border: 1px solid rgba(3, 218, 198, 0.3);
-                padding: 0.3rem 0.7rem;
+                padding: 0.35rem 0.75rem;
                 border-radius: 20px;
                 font-weight: 600;
             }
@@ -185,7 +184,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             .filter-btn:hover { background: #25252b; color: var(--text-main); }
             .filter-btn.active { background: var(--primary); color: #000; border-color: var(--primary); }
 
-            /* Cards & Budget */
             .card-container { display: flex; gap: 1.25rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
             .card { background: var(--surface-color); padding: 1.5rem; border-radius: 12px; flex: 1; min-width: 220px; border: 1px solid var(--surface-border); }
             .card h3 { margin: 0 0 0.8rem 0; font-size: 1.1rem; color: var(--secondary); }
@@ -193,17 +191,14 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             .cost { font-size: 1.2rem; font-weight: 700; color: var(--secondary); margin-top: 0.4rem; }
             .sub-stats { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem; }
 
-            /* Budget Bar */
             .budget-box { background: var(--surface-color); border: 1px solid var(--surface-border); border-radius: 12px; padding: 1.25rem; margin-bottom: 2rem; }
             .budget-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; font-weight: 600; font-size: 0.95rem; }
             .budget-track { background: #121214; height: 12px; border-radius: 6px; overflow: hidden; border: 1px solid var(--surface-border); }
             .budget-fill { height: 100%; transition: width 0.4s ease, background-color 0.4s ease; }
 
-            /* Chart Card */
             .chart-card { background: var(--surface-color); border: 1px solid var(--surface-border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
             .chart-card h3 { margin: 0 0 1rem 0; font-size: 1.1rem; color: var(--primary); }
 
-            /* Search bar & Table */
             .table-header-tools { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem; }
             .search-input { background: var(--surface-color); border: 1px solid var(--surface-border); color: var(--text-main); padding: 0.6rem 1rem; border-radius: 20px; font-size: 0.9rem; min-width: 280px; outline: none; transition: border-color 0.2s; }
             .search-input:focus { border-color: var(--primary); }
@@ -225,6 +220,9 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             .endpoint-card { background: #121214; padding: 1rem; border-radius: 8px; border: 1px solid var(--surface-border); }
             .endpoint-card label { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem; color: var(--secondary); }
             code { background: #000; padding: 0.3rem 0.6rem; border-radius: 4px; color: var(--primary); font-family: monospace; font-size: 0.9rem; word-break: break-all; display: block; }
+            
+            .spinning { animation: spin 0.8s linear infinite; }
+            @keyframes spin { 100% { transform: rotate(360deg); } }
         </style>
     </head>
     <body>
@@ -244,8 +242,11 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             </div>
 
             <div class="actions-group">
-                <a href="/export/csv" class="btn-export">📥 Export CSV</a>
-                <a href="/export/json" class="btn-export">📥 Export JSON</a>
+                <button id="btn-refresh" class="btn-action" onclick="fetchLiveStats(true)">
+                    <span id="refresh-icon">🔄</span> Refresh
+                </button>
+                <a href="/export/csv" class="btn-action">📥 CSV</a>
+                <a href="/export/json" class="btn-action">📥 JSON</a>
                 <div class="status-badge">
                     <div class="status-dot"></div>
                     Proxy Active
@@ -258,14 +259,13 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             <!-- TAB 1: OVERVIEW -->
             <div id="tab-overview" class="tab-content active">
                 
-                <!-- Daily Budget Gauge -->
                 <div class="budget-box">
                     <div class="budget-header">
                         <span>🎯 Daily Budget Usage</span>
-                        <span style="color: ${budgetColor}">$${today.global.estimated_cost_usd.toFixed(4)} / $${today.daily_budget_usd.toFixed(2)} USD (${today.budget_used_percent}%)</span>
+                        <span id="budget-text" style="color: ${budgetColor}">$${today.global.estimated_cost_usd.toFixed(4)} / $${today.daily_budget_usd.toFixed(2)} USD (${today.budget_used_percent}%)</span>
                     </div>
                     <div class="budget-track">
-                        <div class="budget-fill" style="width: ${Math.min(100, today.budget_used_percent)}%; background-color: ${budgetColor};"></div>
+                        <div id="budget-bar-fill" class="budget-fill" style="width: ${Math.min(100, today.budget_used_percent)}%; background-color: ${budgetColor};"></div>
                     </div>
                 </div>
 
@@ -294,7 +294,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                     </div>
                 </div>
 
-                <!-- Usage Chart -->
                 <div class="chart-card">
                     <h3>📈 Hourly Token Usage (Last 24 Hours)</h3>
                     <canvas id="usageChart" height="90"></canvas>
@@ -315,7 +314,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                                 <th style="text-align: right;">Estimated Cost</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="models-body">
                             ${modelsHtml}
                         </tbody>
                     </table>
@@ -391,9 +390,9 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         </div>
 
         <script>
-            const statsData = ${statsData};
+            let statsData = ${statsData};
+            let chartInstance = null;
 
-            // Switch Top Navigation Tabs
             function switchTab(tabId) {
                 document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -405,7 +404,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 if (targetContent) targetContent.classList.add('active');
             }
 
-            // Provider filtering logic
             function updateUI(provider) {
                 const periods = ['today', 'yesterday', 'all'];
                 periods.forEach(p => {
@@ -420,10 +418,26 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                     document.getElementById('stat-' + p + '-sub').innerText = 'In: ' + data.input_tokens.toLocaleString() + ' | Out: ' + data.output_tokens.toLocaleString();
                 });
 
+                // Update Budget Bar
+                const todayData = statsData.today;
+                let budgetColor = '#03dac6';
+                if (todayData.budget_used_percent >= 100) budgetColor = '#ff5252';
+                else if (todayData.budget_used_percent >= 80) budgetColor = '#ffb300';
+
+                const budgetText = document.getElementById('budget-text');
+                const budgetFill = document.getElementById('budget-bar-fill');
+                if (budgetText) {
+                    budgetText.style.color = budgetColor;
+                    budgetText.innerText = '$' + todayData.global.estimated_cost_usd.toFixed(4) + ' / $' + todayData.daily_budget_usd.toFixed(2) + ' USD (' + todayData.budget_used_percent + '%)';
+                }
+                if (budgetFill) {
+                    budgetFill.style.width = Math.min(100, todayData.budget_used_percent) + '%';
+                    budgetFill.style.backgroundColor = budgetColor;
+                }
+
                 filterLogs();
             }
 
-            // Real-time Search & Filter
             function filterLogs() {
                 const query = (document.getElementById('search-input')?.value || '').toLowerCase();
                 const activeBtn = document.querySelector('.filter-btn.active');
@@ -452,6 +466,38 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 }
             }
 
+            // Live Refresh via JSON API
+            async function fetchLiveStats(isManual = false) {
+                const icon = document.getElementById('refresh-icon');
+                if (icon) icon.classList.add('spinning');
+
+                try {
+                    const res = await fetch('/api/stats');
+                    if (res.ok) {
+                        const fresh = await res.json();
+                        statsData = fresh;
+                        
+                        const activeBtn = document.querySelector('.filter-btn.active');
+                        updateUI(activeBtn ? activeBtn.getAttribute('data-provider') : 'all');
+
+                        if (chartInstance && fresh.timeSeriesData) {
+                            chartInstance.data.labels = fresh.timeSeriesData.labels;
+                            chartInstance.data.datasets[0].data = fresh.timeSeriesData.tokens;
+                            chartInstance.update('none');
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch live stats:', e);
+                } finally {
+                    setTimeout(() => {
+                        if (icon) icon.classList.remove('spinning');
+                    }, 500);
+                }
+            }
+
+            // Auto-refresh every 5 seconds
+            setInterval(() => fetchLiveStats(false), 5000);
+
             document.getElementById('search-input')?.addEventListener('input', filterLogs);
 
             document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -462,7 +508,6 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 });
             });
 
-            // Local Time conversion
             document.querySelectorAll('.local-time').forEach(el => {
                 const ts = el.getAttribute('data-timestamp');
                 if (ts) {
@@ -475,10 +520,10 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 }
             });
 
-            // Render Chart.js
+            // Initialize Chart
             if (window.Chart && statsData.timeSeries) {
                 const ctx = document.getElementById('usageChart').getContext('2d');
-                new Chart(ctx, {
+                chartInstance = new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: statsData.timeSeries.labels,
