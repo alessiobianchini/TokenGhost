@@ -10,3 +10,5 @@ You have access to the TokenGhost token auditing system. Your goal is to ensure 
 ## Tools
 - `get_token_stats`: Use this to report token usage to the user when asked (e.g., "How many tokens did I use today?").
 - `log_token_usage`: Use this to manually log tokens if the proxy is not active.
+- `open_dashboard`: Use this to open the TokenGhost dashboard GUI in the default browser.
+- `clear_token_logs`: Use this to reset or clear token logs upon user request.
