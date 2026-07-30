@@ -123,7 +123,11 @@ export function startProxy(port: number) {
       (req as any).__securityWarning = secretCheck;
     });
     
-    if (req.url?.startsWith('/openai/')) {
+    if (req.url?.startsWith('/copilot/')) {
+      target = 'https://api.githubcopilot.com';
+      req.url = req.url.replace('/copilot', '');
+      provider = 'copilot';
+    } else if (req.url?.startsWith('/openai/')) {
       target = 'https://api.openai.com';
       req.url = req.url.replace('/openai', '');
       provider = 'openai';
@@ -208,7 +212,7 @@ export function startProxy(port: number) {
                }
                output_tokens = maxOut;
 
-           } else if (provider === 'openai' || provider === 'deepseek' || provider === 'openrouter' || provider === 'groq') {
+           } else if (provider === 'copilot' || provider === 'openai' || provider === 'deepseek' || provider === 'openrouter' || provider === 'groq') {
                const promptMatches = [...buffer.matchAll(/"prompt_tokens"\s*:\s*(\d+)/g)];
                const compMatches = [...buffer.matchAll(/"completion_tokens"\s*:\s*(\d+)/g)];
                const cachedMatches = [...buffer.matchAll(/"cached_tokens"\s*:\s*(\d+)/g)];
