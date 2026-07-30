@@ -4,8 +4,9 @@
   "description": "Zero-latency token auditing proxy and MCP server to track, analyze, and optimize LLM token consumption across Antigravity, Cursor, Copilot, and more.",
   "main": "index.js",
   "scripts": {
-    "start": "tsx --no-warnings src/index.ts",
-    "mcp": "tsx --no-warnings src/index.ts --mcp",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "mcp": "node dist/index.js --mcp",
     "install:mcp": "tsx scripts/install-mcp.ts",
     "config:ide": "tsx scripts/config-ide.ts",
     "build": "tsc",
