@@ -9,13 +9,13 @@ import path from 'path';
 export async function startMcpServer() {
     const server = new McpServer({
         name: "TokenGhost",
-        version: "1.3.0"
+        version: "1.4.0"
     });
 
     // 1. Tool: get_token_stats
     server.tool(
         "get_token_stats",
-        "Get AI token consumption stats, model breakdowns, estimated USD costs, and per-agent budget status.",
+        "Get AI token consumption stats, model breakdowns, estimated USD costs, prompt cache savings, and per-provider/agent budget status.",
         {
             period: z.enum(["today", "yesterday", "all"]).describe("The period to get stats for.")
         },
@@ -25,24 +25,31 @@ export async function startMcpServer() {
                 
                 let text = `👻 Token Usage Stats for ${period.toUpperCase()}:\n`;
                 text += `• Total Cost: $${stats.global.estimated_cost_usd.toFixed(4)} USD\n`;
+                text += `• Cache Savings: $${stats.global.saved_cost_usd.toFixed(4)} USD (${stats.global.cached_tokens.toLocaleString()} cached tokens)\n`;
                 text += `• Input Tokens: ${stats.global.input_tokens.toLocaleString()}\n`;
                 text += `• Output Tokens: ${stats.global.output_tokens.toLocaleString()}\n`;
                 text += `• Total Tokens: ${stats.global.total_tokens.toLocaleString()}\n`;
+                if (stats.global.security_warnings_count > 0) {
+                    text += `⚠️ Security Warnings: ${stats.global.security_warnings_count} exposed secret(s) detected!\n`;
+                }
 
                 if (period === 'today') {
                     if (stats.budget.is_unlimited) {
-                        text += `• Daily Budget: ♾️ Unlimited\n`;
+                        text += `• Global Daily Budget: ♾️ Unlimited (Default)\n`;
                     } else {
-                        text += `• Daily Budget: $${stats.budget.global_daily_usd.toFixed(2)} USD (${stats.budget.used_percent}% used)\n`;
-                        if (stats.budget.used_percent >= 100) {
-                            text += `🚨 WARNING: Daily spending budget EXCEEDED! ($${stats.global.estimated_cost_usd.toFixed(4)} / $${stats.budget.global_daily_usd.toFixed(2)})\n`;
-                        } else if (stats.budget.used_percent >= 80) {
-                            text += `⚠️ ALERT: 80%+ of daily spending budget reached! ($${stats.global.estimated_cost_usd.toFixed(4)} / $${stats.budget.global_daily_usd.toFixed(2)})\n`;
+                        text += `• Global Daily Budget: $${stats.budget.global_daily_usd.toFixed(2)} USD (${stats.budget.used_percent}% used)\n`;
+                    }
+
+                    if (Object.keys(stats.budget.provider_budgets).length > 0) {
+                        text += `📦 Provider Budget Configurations:\n`;
+                        for (const [p, b] of Object.entries(stats.budget.provider_budgets)) {
+                            const label = b <= 0 ? "♾️ Unlimited" : `$${b.toFixed(2)} USD`;
+                            text += `  - ${p.toUpperCase()}: ${label}\n`;
                         }
                     }
 
                     if (Object.keys(stats.budget.agent_budgets).length > 0) {
-                        text += `🎯 Agent Budget Configurations:\n`;
+                        text += `🤖 Agent Budget Configurations:\n`;
                         for (const [ag, b] of Object.entries(stats.budget.agent_budgets)) {
                             const label = b <= 0 ? "♾️ Unlimited" : `$${b.toFixed(2)} USD`;
                             text += `  - ${ag.toUpperCase()}: ${label}\n`;
@@ -80,16 +87,20 @@ export async function startMcpServer() {
     // 2. Tool: set_daily_budget
     server.tool(
         "set_daily_budget",
-        "Set the daily USD spending budget limit globally or per agent (use -1 or 0 for Unlimited).",
+        "Set the daily USD spending budget limit globally, per provider, or per agent (use -1 or 0 for Unlimited by default).",
         {
-            limit_usd: z.number().describe("The daily USD spend limit (-1 or 0 for Unlimited)"),
-            agent: z.string().optional().describe("Optional agent/client name (e.g. antigravity, copilot, cursor, windsurf)")
+            limit_usd: z.number().optional().default(-1).describe("The daily USD spend limit (-1 or 0 for Unlimited by default)"),
+            provider: z.string().optional().describe("Optional provider name (e.g. openai, anthropic, gemini, deepseek)"),
+            agent: z.string().optional().describe("Optional agent/client name (e.g. antigravity, copilot, cursor)")
         },
-        async ({ limit_usd, agent }) => {
+        async ({ limit_usd, provider, agent }) => {
             try {
-                const config = setDailyBudget(limit_usd, agent);
-                const targetName = agent ? `for agent '${agent}'` : "globally";
-                const label = limit_usd <= 0 ? "♾️ Unlimited" : `$${Math.max(0.1, limit_usd).toFixed(2)} USD`;
+                const config = setDailyBudget(limit_usd, { provider, agent });
+                let targetName = "globally";
+                if (provider) targetName = `for provider '${provider}'`;
+                else if (agent) targetName = `for agent '${agent}'`;
+
+                const label = limit_usd <= 0 ? "♾️ Unlimited (Default)" : `$${Math.max(0.1, limit_usd).toFixed(2)} USD`;
                 return {
                     content: [{ type: "text", text: `🎯 Daily spending budget ${targetName} updated to ${label}.` }]
                 };
@@ -258,7 +269,7 @@ export async function startMcpServer() {
         "tokenghost://stats/today",
         async (uri) => {
             const stats = getTokenStats("today");
-            const budgetLabel = stats.budget.is_unlimited ? "♾️ Unlimited" : `$${stats.budget.global_daily_usd.toFixed(2)} USD (${stats.budget.used_percent}% used)`;
+            const budgetLabel = stats.budget.is_unlimited ? "♾️ Unlimited (Default)" : `$${stats.budget.global_daily_usd.toFixed(2)} USD (${stats.budget.used_percent}% used)`;
             return {
                 contents: [{
                     uri: uri.href,

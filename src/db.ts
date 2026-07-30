@@ -43,8 +43,9 @@ const PRICING: Record<string, ModelPrice> = {
 };
 
 export interface BudgetConfig {
-  global_daily_budget_usd: number;
-  agent_budgets: Record<string, number>;
+  global_daily_budget_usd: number; // -1 or <= 0 means Unlimited by default
+  provider_budgets: Record<string, number>; // provider -> budget_usd (-1 = unlimited)
+  agent_budgets: Record<string, number>;    // agent -> budget_usd (-1 = unlimited)
 }
 
 export function calculateCost(model: string, inputTokens: number, outputTokens: number, cachedTokens: number = 0): { cost: number; saved: number } {
@@ -58,7 +59,6 @@ export function calculateCost(model: string, inputTokens: number, outputTokens: 
     }
   }
 
-  // 90% discount on cached input tokens
   const normalInputTokens = Math.max(0, inputTokens - cachedTokens);
   const inputCost = (normalInputTokens / 1_000_000) * matchedPrice.input;
   const cachedCost = (cachedTokens / 1_000_000) * (matchedPrice.input * 0.10);
@@ -76,20 +76,23 @@ export function getBudgetConfig(): BudgetConfig {
     if (fs.existsSync(configPath)) {
       const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       return {
-        global_daily_budget_usd: typeof data.global_daily_budget_usd === 'number' ? data.global_daily_budget_usd : 5.00,
+        global_daily_budget_usd: typeof data.global_daily_budget_usd === 'number' ? data.global_daily_budget_usd : -1,
+        provider_budgets: data.provider_budgets || {},
         agent_budgets: data.agent_budgets || {}
       };
     }
   } catch (e) {}
-  return { global_daily_budget_usd: 5.00, agent_budgets: {} };
+  return { global_daily_budget_usd: -1, provider_budgets: {}, agent_budgets: {} };
 }
 
-export function setDailyBudget(limitUsd: number, agent?: string): BudgetConfig {
+export function setDailyBudget(limitUsd: number, target?: { provider?: string; agent?: string }): BudgetConfig {
   const config = getBudgetConfig();
   const cleanLimit = limitUsd <= 0 ? -1 : Math.max(0.1, Number(limitUsd.toFixed(2)));
 
-  if (agent && agent.trim()) {
-    config.agent_budgets[agent.toLowerCase().trim()] = cleanLimit;
+  if (target?.provider && target.provider.trim()) {
+    config.provider_budgets[target.provider.toLowerCase().trim()] = cleanLimit;
+  } else if (target?.agent && target.agent.trim()) {
+    config.agent_budgets[target.agent.toLowerCase().trim()] = cleanLimit;
   } else {
     config.global_daily_budget_usd = cleanLimit;
   }
@@ -131,6 +134,7 @@ export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
       global_daily_usd: config.global_daily_budget_usd,
       is_unlimited: config.global_daily_budget_usd <= 0,
       used_percent: 0,
+      provider_budgets: config.provider_budgets,
       agent_budgets: config.agent_budgets
     }
   };
