@@ -5,7 +5,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
     const today = getTokenStats('today');
     const yesterday = getTokenStats('yesterday');
     const all = getTokenStats('all');
-    const recentLogs = getRecentLogs(50);
+    const recentLogs = getRecentLogs(100);
 
     const providersSet = new Set<string>();
     Object.keys(all.providers).forEach(p => providersSet.add(p));
@@ -15,6 +15,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         filterButtonsHtml += `<button class="filter-btn" data-provider="${p}">${p.charAt(0).toUpperCase() + p.slice(1)}</button>`;
     }
 
+    // Prepare Activity Log rows
     let logsHtml = '';
     for (const log of recentLogs) {
         const rawTimestamp = log.timestamp || new Date().toISOString();
@@ -34,7 +35,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             <tr class="log-row" data-provider="${log.provider}">
                 <td class="local-time" data-timestamp="${rawTimestamp}">-</td>
                 <td><span class="badge" style="background:${badgeColor}">${log.provider}</span></td>
-                <td style="color:#bbb">${log.model || 'unknown'}</td>
+                <td style="color:#bbb; font-weight: 500;">${log.model || 'unknown'}</td>
                 <td class="num">${log.input_tokens.toLocaleString()}</td>
                 <td class="num">${log.output_tokens.toLocaleString()}</td>
                 <td class="num total-col">${log.total_tokens.toLocaleString()}</td>
@@ -44,7 +45,25 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
     }
 
     if (logsHtml === '') {
-        logsHtml = '<tr id="no-logs"><td colspan="7" style="text-align: center; color: #888; padding: 2rem;">No logs found yet. Start sending messages!</td></tr>';
+        logsHtml = '<tr id="no-logs"><td colspan="7" style="text-align: center; color: #888; padding: 2.5rem;">No logs recorded yet. Start interacting with AI models!</td></tr>';
+    }
+
+    // Prepare Model Breakdown rows for All-Time
+    let modelsHtml = '';
+    const sortedModels = Object.entries(all.models).sort((a, b) => b[1].total_tokens - a[1].total_tokens);
+    for (const [modelName, mData] of sortedModels) {
+        modelsHtml += `
+            <tr>
+                <td style="color: #03dac6; font-weight: 600;">${modelName}</td>
+                <td class="num">${mData.input_tokens.toLocaleString()}</td>
+                <td class="num">${mData.output_tokens.toLocaleString()}</td>
+                <td class="num total-col">${mData.total_tokens.toLocaleString()}</td>
+                <td class="num cost-col">$${mData.estimated_cost_usd.toFixed(4)} USD</td>
+            </tr>
+        `;
+    }
+    if (modelsHtml === '') {
+        modelsHtml = '<tr><td colspan="5" style="text-align: center; color: #888; padding: 2rem;">No model data available yet.</td></tr>';
     }
 
     const statsData = JSON.stringify({
@@ -61,101 +80,299 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>TokenGhost Dashboard</title>
         <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 2rem; max-width: 1200px; margin: 0 auto; }
-            h1 { color: #bb86fc; margin-bottom: 0.5rem; }
-            h1 span { font-size: 1rem; font-weight: normal; color: #888; margin-left: 1rem; }
-            h2 { color: #03dac6; margin-top: 3rem; margin-bottom: 1rem; }
+            :root {
+                --bg-color: #121214;
+                --surface-color: #1a1a1e;
+                --surface-border: #2a2a30;
+                --primary: #bb86fc;
+                --secondary: #03dac6;
+                --text-main: #e0e0e6;
+                --text-muted: #888894;
+            }
+            * { box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 0; }
             
-            .filters { display: flex; gap: 0.5rem; margin-top: 1.5rem; flex-wrap: wrap; }
-            .filter-btn { background: #252525; border: 1px solid #444; color: #aaa; padding: 0.5rem 1rem; border-radius: 20px; cursor: pointer; transition: all 0.2s; font-size: 0.9rem; font-weight: bold; text-transform: capitalize; }
-            .filter-btn:hover { background: #333; color: #fff; }
-            .filter-btn.active { background: #bb86fc; color: #000; border-color: #bb86fc; }
-            
-            .card-container { display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap; }
-            .card { background: #1e1e1e; padding: 1.5rem; border-radius: 8px; flex: 1; min-width: 200px; border: 1px solid #333; transition: all 0.3s ease; }
-            .card h3 { margin: 0 0 1rem 0; font-size: 1.2rem; color: #03dac6; }
-            .stat { font-size: 2.2rem; font-weight: bold; margin: 0; color: #fff; }
-            .cost { font-size: 1.2rem; font-weight: bold; color: #03dac6; margin-top: 0.4rem; }
-            .sub-stats { font-size: 0.85rem; color: #aaa; margin-top: 0.5rem; }
-            
-            table { width: 100%; border-collapse: collapse; margin-top: 0; background: #1e1e1e; border-radius: 8px; overflow: hidden; border: 1px solid #333; }
-            th, td { padding: 1rem; text-align: left; border-bottom: 1px solid #2a2a2a; }
-            th { background: #252525; color: #aaa; font-weight: normal; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
+            /* Navbar */
+            .navbar {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                background-color: var(--surface-color);
+                border-bottom: 1px solid var(--surface-border);
+                padding: 0.8rem 2rem;
+                position: sticky;
+                top: 0;
+                z-index: 100;
+                backdrop-filter: blur(10px);
+            }
+            .nav-brand {
+                display: flex;
+                align-items: center;
+                gap: 0.75rem;
+                font-size: 1.3rem;
+                font-weight: 700;
+                color: var(--primary);
+            }
+            .nav-brand span.subtitle {
+                font-size: 0.85rem;
+                font-weight: 400;
+                color: var(--text-muted);
+                border-left: 1px solid var(--surface-border);
+                padding-left: 0.75rem;
+            }
+            .nav-links {
+                display: flex;
+                gap: 0.5rem;
+            }
+            .nav-tab {
+                background: transparent;
+                border: none;
+                color: var(--text-muted);
+                padding: 0.6rem 1.2rem;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 0.95rem;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+            }
+            .nav-tab:hover {
+                color: var(--text-main);
+                background: rgba(255, 255, 255, 0.05);
+            }
+            .nav-tab.active {
+                color: var(--primary);
+                background: rgba(187, 134, 252, 0.12);
+            }
+            .status-badge {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                font-size: 0.8rem;
+                color: var(--secondary);
+                background: rgba(3, 218, 198, 0.1);
+                border: 1px solid rgba(3, 218, 198, 0.3);
+                padding: 0.3rem 0.7rem;
+                border-radius: 20px;
+                font-weight: 600;
+            }
+            .status-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background-color: var(--secondary);
+                box-shadow: 0 0 8px var(--secondary);
+            }
+
+            /* Container & Tab Views */
+            .main-container {
+                max-width: 1200px;
+                margin: 2rem auto;
+                padding: 0 1.5rem;
+            }
+            .tab-content {
+                display: none;
+                animation: fadeIn 0.25s ease;
+            }
+            .tab-content.active {
+                display: block;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(6px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+
+            /* Filters */
+            .filters { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+            .filter-btn { background: var(--surface-color); border: 1px solid var(--surface-border); color: var(--text-muted); padding: 0.5rem 1rem; border-radius: 20px; cursor: pointer; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; text-transform: capitalize; }
+            .filter-btn:hover { background: #25252b; color: var(--text-main); }
+            .filter-btn.active { background: var(--primary); color: #000; border-color: var(--primary); }
+
+            /* Cards */
+            .card-container { display: flex; gap: 1.25rem; margin-bottom: 2rem; flex-wrap: wrap; }
+            .card { background: var(--surface-color); padding: 1.5rem; border-radius: 12px; flex: 1; min-width: 220px; border: 1px solid var(--surface-border); transition: transform 0.2s; }
+            .card:hover { transform: translateY(-2px); }
+            .card h3 { margin: 0 0 0.8rem 0; font-size: 1.1rem; color: var(--secondary); }
+            .stat { font-size: 2.2rem; font-weight: 700; margin: 0; color: #fff; }
+            .cost { font-size: 1.2rem; font-weight: 700; color: var(--secondary); margin-top: 0.4rem; }
+            .sub-stats { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem; }
+
+            /* Tables */
+            .table-wrapper { background: var(--surface-color); border-radius: 12px; overflow: hidden; border: 1px solid var(--surface-border); }
+            table { width: 100%; border-collapse: collapse; text-align: left; }
+            th, td { padding: 1rem 1.25rem; border-bottom: 1px solid var(--surface-border); }
+            th { background: #202026; color: var(--text-muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.8px; }
             tr:last-child td { border-bottom: none; }
-            tr:hover { background: #252525; }
-            .num { text-align: right; font-family: monospace; font-size: 1.1rem; }
-            .total-col { color: #bb86fc; font-weight: bold; }
-            .cost-col { color: #03dac6; font-weight: bold; }
-            .badge { padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; font-weight: bold; color: white; text-transform: uppercase; }
-            
-            .instructions { margin-top: 3rem; background: #1e1e1e; padding: 1.5rem; border-radius: 8px; border: 1px solid #333; }
-            code { background: #000; padding: 0.2rem 0.4rem; border-radius: 4px; color: #03dac6; }
+            tr:hover { background: rgba(255, 255, 255, 0.02); }
+            .num { text-align: right; font-family: monospace; font-size: 1rem; }
+            .total-col { color: var(--primary); font-weight: 700; }
+            .cost-col { color: var(--secondary); font-weight: 700; }
+            .badge { padding: 0.25rem 0.65rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; color: white; text-transform: uppercase; }
+
+            /* Guide */
+            .instructions { background: var(--surface-color); padding: 2rem; border-radius: 12px; border: 1px solid var(--surface-border); }
+            .instructions h3 { margin-top: 0; color: var(--primary); }
+            .endpoint-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 1rem; }
+            .endpoint-card { background: #121214; padding: 1rem; border-radius: 8px; border: 1px solid var(--surface-border); }
+            .endpoint-card label { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem; color: var(--secondary); }
+            code { background: #000; padding: 0.3rem 0.6rem; border-radius: 4px; color: var(--primary); font-family: monospace; font-size: 0.9rem; word-break: break-all; display: block; }
         </style>
     </head>
     <body>
-        <h1>👻 TokenGhost <span>Zero-latency token auditing proxy</span></h1>
-        
-        <div class="filters" id="provider-filters">
-            ${filterButtonsHtml}
-        </div>
-        
-        <div class="card-container">
-            <div class="card">
-                <h3>Today</h3>
-                <div class="stat" id="stat-today-total">${today.global.total_tokens.toLocaleString()}</div>
-                <div class="cost" id="stat-today-cost">$${today.global.estimated_cost_usd.toFixed(4)} USD</div>
-                <div class="sub-stats" id="stat-today-sub">In: ${today.global.input_tokens.toLocaleString()} | Out: ${today.global.output_tokens.toLocaleString()}</div>
-            </div>
-            <div class="card">
-                <h3>Yesterday</h3>
-                <div class="stat" id="stat-yesterday-total">${yesterday.global.total_tokens.toLocaleString()}</div>
-                <div class="cost" id="stat-yesterday-cost">$${yesterday.global.estimated_cost_usd.toFixed(4)} USD</div>
-                <div class="sub-stats" id="stat-yesterday-sub">In: ${yesterday.global.input_tokens.toLocaleString()} | Out: ${yesterday.global.output_tokens.toLocaleString()}</div>
-            </div>
-            <div class="card">
-                <h3>All Time</h3>
-                <div class="stat" id="stat-all-total">${all.global.total_tokens.toLocaleString()}</div>
-                <div class="cost" id="stat-all-cost">$${all.global.estimated_cost_usd.toFixed(4)} USD</div>
-                <div class="sub-stats" id="stat-all-sub">In: ${all.global.input_tokens.toLocaleString()} | Out: ${all.global.output_tokens.toLocaleString()}</div>
-            </div>
-        </div>
 
-        <h2>Activity Log</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Timestamp</th>
-                    <th>Provider</th>
-                    <th>Model</th>
-                    <th style="text-align: right;">Input</th>
-                    <th style="text-align: right;">Output</th>
-                    <th style="text-align: right;">Total Tokens</th>
-                    <th style="text-align: right;">Est. Cost</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${logsHtml}
-            </tbody>
-        </table>
+        <!-- Navbar -->
+        <nav class="navbar">
+            <div class="nav-brand">
+                👻 TokenGhost
+                <span class="subtitle">Zero-latency token auditing</span>
+            </div>
 
-        <div class="instructions">
-            <h3>How to use in your IDE</h3>
-            <p>1. Change your IDE's API Base URL to the proxy:</p>
-            <ul>
-                <li>For Anthropic (Claude): <code>http://localhost:8338/anthropic</code></li>
-                <li>For OpenAI (GPT): <code>http://localhost:8338/openai</code></li>
-                <li>For Gemini (Google): <code>http://localhost:8338/gemini</code></li>
-                <li>For DeepSeek: <code>http://localhost:8338/deepseek</code></li>
-                <li>For OpenRouter: <code>http://localhost:8338/openrouter</code></li>
-                <li>For Groq: <code>http://localhost:8338/groq</code></li>
-                <li>For Ollama (Local): <code>http://localhost:8338/ollama</code></li>
-            </ul>
-            <p>2. Keep using your IDE normally. Tokens will be logged silently without adding latency.</p>
+            <div class="nav-links">
+                <button class="nav-tab active" onclick="switchTab('overview')">📊 Overview</button>
+                <button class="nav-tab" onclick="switchTab('models')">🤖 Models</button>
+                <button class="nav-tab" onclick="switchTab('logs')">📋 Activity Log</button>
+                <button class="nav-tab" onclick="switchTab('guide')">⚙️ Setup Guide</button>
+            </div>
+
+            <div class="status-badge">
+                <div class="status-dot"></div>
+                Proxy Active
+            </div>
+        </nav>
+
+        <div class="main-container">
+
+            <!-- TAB 1: OVERVIEW -->
+            <div id="tab-overview" class="tab-content active">
+                <div class="filters" id="provider-filters">
+                    ${filterButtonsHtml}
+                </div>
+
+                <div class="card-container">
+                    <div class="card">
+                        <h3>Today</h3>
+                        <div class="stat" id="stat-today-total">${today.global.total_tokens.toLocaleString()}</div>
+                        <div class="cost" id="stat-today-cost">$${today.global.estimated_cost_usd.toFixed(4)} USD</div>
+                        <div class="sub-stats" id="stat-today-sub">In: ${today.global.input_tokens.toLocaleString()} | Out: ${today.global.output_tokens.toLocaleString()}</div>
+                    </div>
+                    <div class="card">
+                        <h3>Yesterday</h3>
+                        <div class="stat" id="stat-yesterday-total">${yesterday.global.total_tokens.toLocaleString()}</div>
+                        <div class="cost" id="stat-yesterday-cost">$${yesterday.global.estimated_cost_usd.toFixed(4)} USD</div>
+                        <div class="sub-stats" id="stat-yesterday-sub">In: ${yesterday.global.input_tokens.toLocaleString()} | Out: ${yesterday.global.output_tokens.toLocaleString()}</div>
+                    </div>
+                    <div class="card">
+                        <h3>All Time</h3>
+                        <div class="stat" id="stat-all-total">${all.global.total_tokens.toLocaleString()}</div>
+                        <div class="cost" id="stat-all-cost">$${all.global.estimated_cost_usd.toFixed(4)} USD</div>
+                        <div class="sub-stats" id="stat-all-sub">In: ${all.global.input_tokens.toLocaleString()} | Out: ${all.global.output_tokens.toLocaleString()}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: MODELS -->
+            <div id="tab-models" class="tab-content">
+                <h2 style="margin-top:0;">🤖 Model Consumption & Costs</h2>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Model</th>
+                                <th style="text-align: right;">Input Tokens</th>
+                                <th style="text-align: right;">Output Tokens</th>
+                                <th style="text-align: right;">Total Tokens</th>
+                                <th style="text-align: right;">Estimated Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${modelsHtml}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TAB 3: LOGS -->
+            <div id="tab-logs" class="tab-content">
+                <h2 style="margin-top:0;">📋 Recent Activity Logs</h2>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Provider</th>
+                                <th>Model</th>
+                                <th style="text-align: right;">Input</th>
+                                <th style="text-align: right;">Output</th>
+                                <th style="text-align: right;">Total Tokens</th>
+                                <th style="text-align: right;">Est. Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${logsHtml}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TAB 4: GUIDE -->
+            <div id="tab-guide" class="tab-content">
+                <div class="instructions">
+                    <h3>⚙️ How to configure your IDE or Client</h3>
+                    <p>Change your IDE's API Base URL to point to TokenGhost for transparent token auditing:</p>
+                    
+                    <div class="endpoint-grid">
+                        <div class="endpoint-card">
+                            <label>Anthropic (Claude)</label>
+                            <code>http://localhost:8338/anthropic</code>
+                        </div>
+                        <div class="endpoint-card">
+                            <label>OpenAI (GPT)</label>
+                            <code>http://localhost:8338/openai</code>
+                        </div>
+                        <div class="endpoint-card">
+                            <label>Google (Gemini)</label>
+                            <code>http://localhost:8338/gemini</code>
+                        </div>
+                        <div class="endpoint-card">
+                            <label>DeepSeek</label>
+                            <code>http://localhost:8338/deepseek</code>
+                        </div>
+                        <div class="endpoint-card">
+                            <label>OpenRouter</label>
+                            <code>http://localhost:8338/openrouter</code>
+                        </div>
+                        <div class="endpoint-card">
+                            <label>Groq</label>
+                            <code>http://localhost:8338/groq</code>
+                        </div>
+                        <div class="endpoint-card">
+                            <label>Ollama (Local)</label>
+                            <code>http://localhost:8338/ollama</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
 
         <script>
             const statsData = ${statsData};
 
+            // Switch Top Navigation Tabs
+            function switchTab(tabId) {
+                document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+                const targetTab = Array.from(document.querySelectorAll('.nav-tab')).find(t => t.getAttribute('onclick').includes(tabId));
+                if (targetTab) targetTab.classList.add('active');
+
+                const targetContent = document.getElementById('tab-' + tabId);
+                if (targetContent) targetContent.classList.add('active');
+            }
+
+            // Provider filtering logic
             function updateUI(provider) {
                 const periods = ['today', 'yesterday', 'all'];
                 periods.forEach(p => {
@@ -199,6 +416,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                 });
             });
 
+            // Local Time conversion
             document.querySelectorAll('.local-time').forEach(el => {
                 const ts = el.getAttribute('data-timestamp');
                 if (ts) {
@@ -206,7 +424,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                     if (!isNaN(d.getTime())) {
                         const date = d.toLocaleDateString();
                         const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                        el.innerHTML = date + ' <span style="color:#888; font-size:0.9em">' + time + '</span>';
+                        el.innerHTML = date + ' <span style="color:#888; font-size:0.85em">' + time + '</span>';
                     }
                 }
             });
