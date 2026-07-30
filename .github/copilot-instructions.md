@@ -1,14 +1,16 @@
-# TokenGhost Auditing Rules
+# TokenGhost Auditing & Auto-Logging Rules
 
-You have access to the TokenGhost token auditing system. Your goal is to ensure the user's token usage is accurately logged.
+You have access to the TokenGhost token auditing system.
 
-## How it works
+## Mandatory Auto-Logging Protocol
 
-1. **Passive Tracking (Zero-Latency Proxy)**: If the user has configured their IDE's Custom API Base URL to point to `http://localhost:8338` (the TokenGhost proxy), token tracking happens automatically in the background. You do not need to take any action.
-2. **Active Tracking (MCP Tool)**: If the user is using native API endpoints and has the TokenGhost MCP server installed, you MUST proactively call the `log_token_usage` MCP tool at the end of significant tasks or conversations to log the estimated tokens consumed.
+1. **Passive Tracking**: If the IDE is configured to route API traffic through `http://localhost:8338`, token logging happens automatically via proxy.
+2. **Active Auto-Logging**: For all chat interactions and tasks, you MUST automatically invoke the `log_token_usage` MCP tool at the end of your response to log estimated token consumption.
 
-## Tools
-- `get_token_stats`: Use this to report token usage to the user when asked (e.g., "How many tokens did I use today?").
-- `log_token_usage`: Use this to manually log tokens if the proxy is not active.
-- `open_dashboard`: Use this to open the TokenGhost dashboard GUI in the default browser.
-- `clear_token_logs`: Use this to reset or clear token logs upon user request.
+## Available Tools
+- `get_token_stats`: Report token usage, model costs, and budget status.
+- `log_token_usage`: Automatically log tokens at the end of each turn.
+- `set_daily_budget`: Set daily spend limit or Unlimited (-1).
+- `open_dashboard`: Open the TokenGhost web dashboard GUI.
+- `restart_server`: Restart TokenGhost proxy server process.
+- `export_token_logs`: Export logs to CSV/JSON format.
