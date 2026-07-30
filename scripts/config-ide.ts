@@ -16,8 +16,9 @@ async function configureIDE() {
     }
     const workspaceMcpPath = path.join(vscodeFolder, 'mcp.json');
     const workspaceMcpConfig = {
-        mcpServers: {
+        servers: {
             tokenghost: {
+                type: "stdio",
                 command: "node",
                 args: [projectDistPath, "--mcp"]
             }
@@ -26,7 +27,22 @@ async function configureIDE() {
     fs.writeFileSync(workspaceMcpPath, JSON.stringify(workspaceMcpConfig, null, 2), 'utf-8');
     console.log(`✅ Created workspace MCP configuration at ${workspaceMcpPath}`);
 
-    // 2. Global VS Code Settings Path
+    // 2. VS Code User-level mcp.json (read by VS Code MCP panel)
+    const vscodeMcpJsonPath = path.join(appData, 'Code', 'User', 'mcp.json');
+    try {
+        let mcpJson: any = { servers: {}, inputs: [] };
+        if (fs.existsSync(vscodeMcpJsonPath)) {
+            mcpJson = JSON.parse(fs.readFileSync(vscodeMcpJsonPath, 'utf-8'));
+        }
+        if (!mcpJson.servers) mcpJson.servers = {};
+        mcpJson.servers['tokenghost'] = { type: 'stdio', command: 'node', args: [projectDistPath, '--mcp'] };
+        fs.writeFileSync(vscodeMcpJsonPath, JSON.stringify(mcpJson, null, '\t'), 'utf-8');
+        console.log(`✅ Installed TokenGhost MCP into VS Code User mcp.json (${vscodeMcpJsonPath})`);
+    } catch (err: any) {
+        console.error(`⚠️ Could not update VS Code User mcp.json: ${err.message}`);
+    }
+
+    // 2b. Global VS Code Settings Path
     const vscodeSettingsPath = path.join(appData, 'Code', 'User', 'settings.json');
 
     if (fs.existsSync(vscodeSettingsPath)) {
@@ -66,6 +82,7 @@ async function configureIDE() {
                 settings['mcp.servers'] = {};
             }
             settings['mcp.servers']['tokenghost'] = {
+                type: "stdio",
                 command: "node",
                 args: [projectDistPath, "--mcp"]
             };
@@ -74,6 +91,7 @@ async function configureIDE() {
                 settings['mcpServers'] = {};
             }
             settings['mcpServers']['tokenghost'] = {
+                type: "stdio",
                 command: "node",
                 args: [projectDistPath, "--mcp"]
             };

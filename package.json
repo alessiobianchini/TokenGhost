@@ -8,7 +8,9 @@
     "mcp": "tsx --no-warnings src/index.ts --mcp",
     "install:mcp": "tsx scripts/install-mcp.ts",
     "config:ide": "tsx scripts/config-ide.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "check:install": "tsx scripts/check-install.ts",
+    "setup:all": "pnpm run build && pnpm run install:mcp && pnpm run check:install"
   },
   "keywords": [
     "mcp-server",

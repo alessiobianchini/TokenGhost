@@ -1,6 +1,7 @@
 {
-  "mcpServers": {
+  "servers": {
     "tokenghost": {
+      "type": "stdio",
       "command": "node",
       "args": [
         "D:/Git/Ale/AI/mcp/TokenGhost/dist/index.js",

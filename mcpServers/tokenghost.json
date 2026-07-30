@@ -1,4 +1,5 @@
 {
+  "type": "stdio",
   "command": "npx.cmd",
   "args": [
     "tsx",

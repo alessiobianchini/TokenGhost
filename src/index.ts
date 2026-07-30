@@ -4,6 +4,7 @@ import { startMcpServer } from './mcp';
 async function main() {
     // If the process is launched with --mcp, it enables the MCP protocol on stdio
     const isMcp = process.argv.includes('--mcp');
+    const enableProxyInMcp = process.env.TOKENGHOST_ENABLE_PROXY_IN_MCP === '1';
 
     // If running in MCP mode, stdout MUST be reserved for JSON-RPC. 
     // We redirect normal console.log to console.error (stderr) so we don't break the protocol.
@@ -16,9 +17,11 @@ async function main() {
     }
 
     const port = parseInt(process.env.PORT || '8338', 10);
-    
-    // Start the Zero-Latency Proxy & Dashboard
-    startProxy(port);
+
+    // Avoid spawning many proxy instances when MCP server is auto-started by IDEs.
+    if (!isMcp || enableProxyInMcp) {
+        startProxy(port);
+    }
 
     // Start the MCP Server if requested
     if (isMcp) {

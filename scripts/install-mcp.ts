@@ -91,8 +91,9 @@ function installAll() {
         }
         const workspaceMcpPath = path.join(vscodeFolder, 'mcp.json');
         const workspaceConfig = {
-            mcpServers: {
+            servers: {
                 tokenghost: {
+                    type: 'stdio',
                     command: 'node',
                     args: [scriptPath, '--mcp']
                 }
@@ -105,7 +106,23 @@ function installAll() {
         console.error('⚠️ Could not update .vscode/mcp.json:', e.message);
     }
 
-    // 4. Global VS Code Settings & Copilot Instructions
+    // 4. VS Code User-level mcp.json (read by VS Code MCP panel)
+    const vscodeMcpJsonPath = path.join(appData, 'Code', 'User', 'mcp.json');
+    try {
+        let mcpJson: any = { servers: {}, inputs: [] };
+        if (fs.existsSync(vscodeMcpJsonPath)) {
+            mcpJson = JSON.parse(fs.readFileSync(vscodeMcpJsonPath, 'utf8'));
+        }
+        if (!mcpJson.servers) mcpJson.servers = {};
+        mcpJson.servers['tokenghost'] = { type: 'stdio', command: 'node', args: [scriptPath, '--mcp'] };
+        fs.writeFileSync(vscodeMcpJsonPath, JSON.stringify(mcpJson, null, '\t'));
+        console.log('✅ Installed TokenGhost MCP into VS Code User mcp.json');
+        totalConfigured++;
+    } catch (e: any) {
+        console.error('⚠️ Could not update VS Code User mcp.json:', e.message);
+    }
+
+    // 4b. Global VS Code Settings & Copilot Instructions
     const vscodeSettingsPath = path.join(appData, 'Code', 'User', 'settings.json');
     if (fs.existsSync(vscodeSettingsPath)) {
         try {
@@ -129,10 +146,10 @@ function installAll() {
 
             // VS Code Native MCP Registration
             if (!settings['mcp.servers']) settings['mcp.servers'] = {};
-            settings['mcp.servers']['tokenghost'] = { command: 'node', args: [scriptPath, '--mcp'] };
+            settings['mcp.servers']['tokenghost'] = { type: 'stdio', command: 'node', args: [scriptPath, '--mcp'] };
 
             if (!settings['mcpServers']) settings['mcpServers'] = {};
-            settings['mcpServers']['tokenghost'] = { command: 'node', args: [scriptPath, '--mcp'] };
+            settings['mcpServers']['tokenghost'] = { type: 'stdio', command: 'node', args: [scriptPath, '--mcp'] };
 
             fs.writeFileSync(vscodeSettingsPath, JSON.stringify(settings, null, 2));
             console.log('✅ Installed TokenGhost MCP & Copilot instructions into VS Code Global Settings');
@@ -149,7 +166,7 @@ function installAll() {
             const raw = fs.readFileSync(cursorSettingsPath, 'utf8');
             let settings = JSON.parse(raw);
             if (!settings['mcp.servers']) settings['mcp.servers'] = {};
-            settings['mcp.servers']['tokenghost'] = { command: 'node', args: [scriptPath, '--mcp'] };
+            settings['mcp.servers']['tokenghost'] = { type: 'stdio', command: 'node', args: [scriptPath, '--mcp'] };
             fs.writeFileSync(cursorSettingsPath, JSON.stringify(settings, null, 2));
             console.log('✅ Installed TokenGhost MCP into Cursor Settings');
             totalConfigured++;

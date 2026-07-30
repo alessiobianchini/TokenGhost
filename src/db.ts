@@ -103,6 +103,8 @@ export function setDailyBudget(limitUsd: number, target?: { provider?: string; a
 
 export function logTokenUsage(log: TokenLog) {
   log.timestamp = new Date().toISOString();
+  log.model = (log.model || 'unknown').toLowerCase().trim();
+  log.provider = (log.provider || 'unknown').toLowerCase().trim();
   if (log.estimated_cost_usd === undefined || log.saved_cost_usd === undefined) {
     const calculated = calculateCost(log.model, log.input_tokens, log.output_tokens, log.cached_tokens || 0);
     log.estimated_cost_usd = calculated.cost;
