@@ -38,6 +38,12 @@ async function configureIDE() {
             settings['chat.mcp.enabled'] = true;
             settings['github.copilot.chat.mcp.enabled'] = true;
 
+            // Route GitHub Copilot traffic through TokenGhost Proxy
+            if (!settings['github.copilot.advanced']) {
+                settings['github.copilot.advanced'] = {};
+            }
+            settings['github.copilot.advanced']['debug.overrideCapiUrl'] = 'http://localhost:8338/openai';
+
             // Inject Copilot Instructions
             if (!settings['github.copilot.chat.codeGeneration.instructions']) {
                 settings['github.copilot.chat.codeGeneration.instructions'] = [];
@@ -73,7 +79,7 @@ async function configureIDE() {
             };
 
             fs.writeFileSync(vscodeSettingsPath, JSON.stringify(settings, null, 2), 'utf-8');
-            console.log(`✅ Injected TokenGhost MCP Server and Copilot Instructions into VS Code Settings (${vscodeSettingsPath})`);
+            console.log(`✅ Injected TokenGhost Proxy & MCP Server into VS Code Settings (${vscodeSettingsPath})`);
 
         } catch (err: any) {
             console.error(`⚠️ Could not update VS Code Settings: ${err.message}`);
