@@ -32,6 +32,38 @@ function installAll() {
         }
     }
 
+    // 1b. Sync Global Plugin SKILL.md & plugin.json for Antigravity
+    try {
+        const globalPluginDir = path.join(homedir, '.gemini', 'config', 'plugins', 'tokenghost');
+        if (fs.existsSync(globalPluginDir)) {
+            const pluginJsonPath = path.join(globalPluginDir, 'plugin.json');
+            const pluginJson = {
+                name: "tokenghost",
+                version: "1.0.0",
+                description: "TokenGhost: The ultimate zero-latency token auditing proxy and MCP server.",
+                author: "TokenGhost Contributors",
+                mcpServers: {
+                    tokenghost: {
+                        command: "node",
+                        args: [scriptPath, "--mcp"]
+                    }
+                }
+            };
+            fs.writeFileSync(pluginJsonPath, JSON.stringify(pluginJson, null, 2));
+
+            const skillDestDir = path.join(globalPluginDir, 'skills', 'tokenghost');
+            if (!fs.existsSync(skillDestDir)) fs.mkdirSync(skillDestDir, { recursive: true });
+
+            const srcSkillPath = path.join(process.cwd(), 'skills', 'tokenghost', 'SKILL.md');
+            if (fs.existsSync(srcSkillPath)) {
+                fs.copyFileSync(srcSkillPath, path.join(skillDestDir, 'SKILL.md'));
+                console.log('✅ Synced Global Antigravity TokenGhost Skill & Protocol');
+            }
+        }
+    } catch (e: any) {
+        console.error('⚠️ Could not sync global Antigravity plugin:', e.message);
+    }
+
     // 2. Workspace .vscode/mcp.json
     try {
         const vscodeFolder = path.join(process.cwd(), '.vscode');
