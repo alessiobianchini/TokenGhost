@@ -64,7 +64,26 @@ function installAll() {
         console.error('⚠️ Could not sync global Antigravity plugin:', e.message);
     }
 
-    // 2. Workspace .vscode/mcp.json
+    // 2. Windsurf Configuration (~/.codeium/windsurf/mcp_config.json)
+    const windsurfPath = path.join(homedir, '.codeium', 'windsurf', 'mcp_config.json');
+    if (fs.existsSync(windsurfPath)) {
+        try {
+            const raw = fs.readFileSync(windsurfPath, 'utf8');
+            let config = JSON.parse(raw);
+            if (!config.mcpServers) config.mcpServers = {};
+            config.mcpServers['tokenghost'] = {
+                command: 'node',
+                args: [scriptPath, '--mcp']
+            };
+            fs.writeFileSync(windsurfPath, JSON.stringify(config, null, 2));
+            console.log('✅ Installed TokenGhost MCP into Windsurf config');
+            totalConfigured++;
+        } catch (e: any) {
+            console.error('⚠️ Could not update Windsurf config:', e.message);
+        }
+    }
+
+    // 3. Workspace .vscode/mcp.json
     try {
         const vscodeFolder = path.join(process.cwd(), '.vscode');
         if (!fs.existsSync(vscodeFolder)) {
@@ -86,7 +105,7 @@ function installAll() {
         console.error('⚠️ Could not update .vscode/mcp.json:', e.message);
     }
 
-    // 3. Global VS Code Settings & Copilot Instructions
+    // 4. Global VS Code Settings & Copilot Instructions
     const vscodeSettingsPath = path.join(appData, 'Code', 'User', 'settings.json');
     if (fs.existsSync(vscodeSettingsPath)) {
         try {
@@ -123,7 +142,7 @@ function installAll() {
         }
     }
 
-    // 4. Cursor User Settings (if present)
+    // 5. Cursor User Settings (if present)
     const cursorSettingsPath = path.join(appData, 'Cursor', 'User', 'settings.json');
     if (fs.existsSync(cursorSettingsPath)) {
         try {
