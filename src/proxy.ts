@@ -24,6 +24,19 @@ proxy.on('error', (err, req, res) => {
   }
 });
 
+// Secrets & PII Sniffer Helper
+function scanForSecrets(content: string): { hasSecret: boolean; type?: string } {
+  if (!content) return { hasSecret: false };
+
+  if (/AKIA[0-9A-Z]{16}/.test(content)) return { hasSecret: true, type: 'AWS Key' };
+  if (/sk-[a-zA-Z0-9]{32,}/.test(content)) return { hasSecret: true, type: 'OpenAI/API Key' };
+  if (/BEGIN (RSA |EC |PGP )?PRIVATE KEY/.test(content)) return { hasSecret: true, type: 'Private Key' };
+  if (/"password"\s*:\s*"[^"]+"/.test(content)) return { hasSecret: true, type: 'Password' };
+  if (/Bearer\s+eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/.test(content)) return { hasSecret: true, type: 'JWT Token' };
+
+  return { hasSecret: false };
+}
+
 export function startProxy(port: number) {
   activeProxyPort = port;
 
@@ -84,9 +97,19 @@ export function startProxy(port: number) {
       return;
     }
 
-    // 5. Proxy Routing
+    // 5. Proxy Routing & Secret Scanning
     let target = '';
     let provider = 'unknown';
+
+    let requestBodyBuffer = '';
+    req.on('data', (chunk) => {
+      requestBodyBuffer += chunk.toString('utf8');
+    });
+
+    req.on('end', () => {
+      const secretCheck = scanForSecrets(requestBodyBuffer);
+      (req as any).__securityWarning = secretCheck;
+    });
     
     if (req.url?.startsWith('/openai/')) {
       target = 'https://api.openai.com';
@@ -142,6 +165,7 @@ export function startProxy(port: number) {
 
   proxy.on('proxyRes', (proxyRes, req, res) => {
     const provider = (req as any).__provider || 'unknown';
+    const securityWarning = (req as any).__securityWarning || { hasSecret: false };
     let buffer = '';
 
     proxyRes.on('data', (chunk) => {
@@ -152,6 +176,7 @@ export function startProxy(port: number) {
         try {
            let input_tokens = 0;
            let output_tokens = 0;
+           let cached_tokens = 0;
 
            const modelMatch = buffer.match(/"model"\s*:\s*"([^"]+)"/);
            const model = modelMatch ? modelMatch[1] : 'unknown';
@@ -159,7 +184,11 @@ export function startProxy(port: number) {
            if (provider === 'anthropic') {
                const inMatches = [...buffer.matchAll(/"input_tokens"\s*:\s*(\d+)/g)];
                const outMatches = [...buffer.matchAll(/"output_tokens"\s*:\s*(\d+)/g)];
+               const cacheMatches = [...buffer.matchAll(/"cache_read_input_tokens"\s*:\s*(\d+)/g)];
+
                if (inMatches.length > 0) input_tokens = parseInt(inMatches[inMatches.length - 1][1]);
+               if (cacheMatches.length > 0) cached_tokens = parseInt(cacheMatches[cacheMatches.length - 1][1]);
+
                let maxOut = 0;
                for (const m of outMatches) {
                    const val = parseInt(m[1]);
@@ -170,13 +199,21 @@ export function startProxy(port: number) {
            } else if (provider === 'openai' || provider === 'deepseek' || provider === 'openrouter' || provider === 'groq') {
                const promptMatches = [...buffer.matchAll(/"prompt_tokens"\s*:\s*(\d+)/g)];
                const compMatches = [...buffer.matchAll(/"completion_tokens"\s*:\s*(\d+)/g)];
+               const cachedMatches = [...buffer.matchAll(/"cached_tokens"\s*:\s*(\d+)/g)];
+               const hitMatches = [...buffer.matchAll(/"prompt_cache_hit_tokens"\s*:\s*(\d+)/g)];
+
                if (promptMatches.length > 0) input_tokens = parseInt(promptMatches[promptMatches.length - 1][1]);
                if (compMatches.length > 0) output_tokens = parseInt(compMatches[compMatches.length - 1][1]);
+               if (cachedMatches.length > 0) cached_tokens = parseInt(cachedMatches[cachedMatches.length - 1][1]);
+               if (hitMatches.length > 0) cached_tokens = parseInt(hitMatches[hitMatches.length - 1][1]);
            } else if (provider === 'gemini') {
                const promptMatches = [...buffer.matchAll(/"promptTokenCount"\s*:\s*(\d+)/g)];
                const compMatches = [...buffer.matchAll(/"candidatesTokenCount"\s*:\s*(\d+)/g)];
+               const cachedMatches = [...buffer.matchAll(/"cachedContentTokenCount"\s*:\s*(\d+)/g)];
+
                if (promptMatches.length > 0) input_tokens = parseInt(promptMatches[promptMatches.length - 1][1]);
                if (compMatches.length > 0) output_tokens = parseInt(compMatches[compMatches.length - 1][1]);
+               if (cachedMatches.length > 0) cached_tokens = parseInt(cachedMatches[cachedMatches.length - 1][1]);
            } else if (provider === 'ollama') {
                const promptMatches = [...buffer.matchAll(/"prompt_eval_count"\s*:\s*(\d+)/g)];
                const compMatches = [...buffer.matchAll(/"eval_count"\s*:\s*(\d+)/g)];
@@ -190,9 +227,12 @@ export function startProxy(port: number) {
                    model,
                    input_tokens,
                    output_tokens,
-                   total_tokens: input_tokens + output_tokens
+                   total_tokens: input_tokens + output_tokens,
+                   cached_tokens,
+                   has_security_warning: securityWarning.hasSecret,
+                   security_warning_type: securityWarning.type
                });
-               console.log(`[TokenGhost] 👻 Logged ${input_tokens} In, ${output_tokens} Out | Model: ${model} | Provider: ${provider}`);
+               console.log(`[TokenGhost] 👻 Logged ${input_tokens} In (${cached_tokens} Cached), ${output_tokens} Out | Model: ${model} | Provider: ${provider}`);
            }
         } catch(e) {}
     });

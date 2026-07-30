@@ -11,6 +11,10 @@ export interface TokenLog {
   output_tokens: number;
   total_tokens: number;
   estimated_cost_usd?: number;
+  cached_tokens?: number;
+  saved_cost_usd?: number;
+  has_security_warning?: boolean;
+  security_warning_type?: string;
   timestamp?: string;
   agent?: string;
 }
@@ -39,11 +43,11 @@ const PRICING: Record<string, ModelPrice> = {
 };
 
 export interface BudgetConfig {
-  global_daily_budget_usd: number; // -1 or 0 means Unlimited
-  agent_budgets: Record<string, number>; // agent_name -> budget_usd (-1 = unlimited)
+  global_daily_budget_usd: number;
+  agent_budgets: Record<string, number>;
 }
 
-export function calculateCost(model: string, inputTokens: number, outputTokens: number): number {
+export function calculateCost(model: string, inputTokens: number, outputTokens: number, cachedTokens: number = 0): { cost: number; saved: number } {
   const modelLower = (model || '').toLowerCase();
   let matchedPrice: ModelPrice = { input: 1.00, output: 3.00 };
 
@@ -54,12 +58,19 @@ export function calculateCost(model: string, inputTokens: number, outputTokens: 
     }
   }
 
-  const inputCost = (inputTokens / 1_000_000) * matchedPrice.input;
+  // 90% discount on cached input tokens
+  const normalInputTokens = Math.max(0, inputTokens - cachedTokens);
+  const inputCost = (normalInputTokens / 1_000_000) * matchedPrice.input;
+  const cachedCost = (cachedTokens / 1_000_000) * (matchedPrice.input * 0.10);
   const outputCost = (outputTokens / 1_000_000) * matchedPrice.output;
-  return Number((inputCost + outputCost).toFixed(6));
+  const savedCost = (cachedTokens / 1_000_000) * (matchedPrice.input * 0.90);
+
+  return {
+    cost: Number((inputCost + cachedCost + outputCost).toFixed(6)),
+    saved: Number(savedCost.toFixed(6))
+  };
 }
 
-// Budget Config Operations
 export function getBudgetConfig(): BudgetConfig {
   try {
     if (fs.existsSync(configPath)) {
@@ -89,8 +100,10 @@ export function setDailyBudget(limitUsd: number, agent?: string): BudgetConfig {
 
 export function logTokenUsage(log: TokenLog) {
   log.timestamp = new Date().toISOString();
-  if (log.estimated_cost_usd === undefined) {
-    log.estimated_cost_usd = calculateCost(log.model, log.input_tokens, log.output_tokens);
+  if (log.estimated_cost_usd === undefined || log.saved_cost_usd === undefined) {
+    const calculated = calculateCost(log.model, log.input_tokens, log.output_tokens, log.cached_tokens || 0);
+    log.estimated_cost_usd = calculated.cost;
+    log.saved_cost_usd = calculated.saved;
   }
   const line = JSON.stringify(log) + '\n';
   
@@ -103,13 +116,15 @@ export interface StatsGroup {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
+  cached_tokens: number;
   estimated_cost_usd: number;
+  saved_cost_usd: number;
 }
 
 export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
   const config = getBudgetConfig();
   const stats = {
-    global: { input_tokens: 0, output_tokens: 0, total_tokens: 0, estimated_cost_usd: 0 },
+    global: { input_tokens: 0, output_tokens: 0, total_tokens: 0, cached_tokens: 0, estimated_cost_usd: 0, saved_cost_usd: 0, security_warnings_count: 0 },
     providers: {} as Record<string, StatsGroup>,
     models: {} as Record<string, StatsGroup>,
     budget: {
@@ -159,38 +174,54 @@ export function getTokenStats(period: 'today' | 'yesterday' | 'all') {
       if (include) {
           const provider = log.provider || 'unknown';
           const model = log.model || 'unknown';
-          const cost = log.estimated_cost_usd ?? calculateCost(model, log.input_tokens || 0, log.output_tokens || 0);
+          const cached = log.cached_tokens || 0;
+          const calculated = calculateCost(model, log.input_tokens || 0, log.output_tokens || 0, cached);
+          const cost = log.estimated_cost_usd ?? calculated.cost;
+          const saved = log.saved_cost_usd ?? calculated.saved;
 
           stats.global.input_tokens += log.input_tokens || 0;
           stats.global.output_tokens += log.output_tokens || 0;
           stats.global.total_tokens += log.total_tokens || 0;
+          stats.global.cached_tokens += cached;
           stats.global.estimated_cost_usd += cost;
+          stats.global.saved_cost_usd += saved;
+          if (log.has_security_warning) {
+            stats.global.security_warnings_count += 1;
+          }
           
           if (!stats.providers[provider]) {
-              stats.providers[provider] = { input_tokens: 0, output_tokens: 0, total_tokens: 0, estimated_cost_usd: 0 };
+              stats.providers[provider] = { input_tokens: 0, output_tokens: 0, total_tokens: 0, cached_tokens: 0, estimated_cost_usd: 0, saved_cost_usd: 0 };
           }
           stats.providers[provider].input_tokens += log.input_tokens || 0;
           stats.providers[provider].output_tokens += log.output_tokens || 0;
           stats.providers[provider].total_tokens += log.total_tokens || 0;
+          stats.providers[provider].cached_tokens += cached;
           stats.providers[provider].estimated_cost_usd += cost;
+          stats.providers[provider].saved_cost_usd += saved;
 
           if (!stats.models[model]) {
-              stats.models[model] = { input_tokens: 0, output_tokens: 0, total_tokens: 0, estimated_cost_usd: 0 };
+              stats.models[model] = { input_tokens: 0, output_tokens: 0, total_tokens: 0, cached_tokens: 0, estimated_cost_usd: 0, saved_cost_usd: 0 };
           }
           stats.models[model].input_tokens += log.input_tokens || 0;
           stats.models[model].output_tokens += log.output_tokens || 0;
           stats.models[model].total_tokens += log.total_tokens || 0;
+          stats.models[model].cached_tokens += cached;
           stats.models[model].estimated_cost_usd += cost;
+          stats.models[model].saved_cost_usd += saved;
       }
     } catch (e) {}
   }
 
   stats.global.estimated_cost_usd = Number(stats.global.estimated_cost_usd.toFixed(4));
+  stats.global.saved_cost_usd = Number(stats.global.saved_cost_usd.toFixed(4));
+  
   for (const p of Object.keys(stats.providers)) {
     stats.providers[p].estimated_cost_usd = Number(stats.providers[p].estimated_cost_usd.toFixed(4));
+    stats.providers[p].saved_cost_usd = Number(stats.providers[p].saved_cost_usd.toFixed(4));
   }
   for (const m of Object.keys(stats.models)) {
     stats.models[m].estimated_cost_usd = Number(stats.models[m].estimated_cost_usd.toFixed(4));
+    stats.models[m].saved_cost_usd = Number(stats.models[m].saved_cost_usd.toFixed(4));
   }
 
   if (period === 'today' && config.global_daily_budget_usd > 0) {
@@ -232,7 +263,7 @@ export function getTimeSeriesStats() {
         const hourKey = `${String(logDate.getHours()).padStart(2, '0')}:00`;
         if (hourlyBucket[hourKey]) {
           hourlyBucket[hourKey].tokens += log.total_tokens || 0;
-          hourlyBucket[hourKey].cost += log.estimated_cost_usd || calculateCost(log.model, log.input_tokens, log.output_tokens);
+          hourlyBucket[hourKey].cost += log.estimated_cost_usd || calculateCost(log.model, log.input_tokens, log.output_tokens, log.cached_tokens || 0).cost;
         }
       }
     } catch (e) {}
@@ -258,7 +289,9 @@ export function getRecentLogs(limit: number = 50): TokenLog[] {
     try {
       const log: TokenLog = JSON.parse(lines[i]);
       if (log.estimated_cost_usd === undefined) {
-        log.estimated_cost_usd = calculateCost(log.model || 'unknown', log.input_tokens || 0, log.output_tokens || 0);
+        const calculated = calculateCost(log.model || 'unknown', log.input_tokens || 0, log.output_tokens || 0, log.cached_tokens || 0);
+        log.estimated_cost_usd = calculated.cost;
+        log.saved_cost_usd = calculated.saved;
       }
       logs.push(log);
     } catch (e) {}
@@ -269,17 +302,21 @@ export function getRecentLogs(limit: number = 50): TokenLog[] {
 
 export function getLogsAsCsv(): string {
   if (!fs.existsSync(dbPath)) {
-    return 'Timestamp,Provider,Model,InputTokens,OutputTokens,TotalTokens,EstimatedCostUSD\n';
+    return 'Timestamp,Provider,Model,InputTokens,OutputTokens,TotalTokens,CachedTokens,EstimatedCostUSD,SavedCostUSD,SecurityWarning\n';
   }
 
   const lines = fs.readFileSync(dbPath, 'utf-8').split('\n').filter(l => l.trim() !== '');
-  let csv = 'Timestamp,Provider,Model,InputTokens,OutputTokens,TotalTokens,EstimatedCostUSD\n';
+  let csv = 'Timestamp,Provider,Model,InputTokens,OutputTokens,TotalTokens,CachedTokens,EstimatedCostUSD,SavedCostUSD,SecurityWarning\n';
   
   for (const line of lines) {
     try {
       const log: TokenLog = JSON.parse(line);
-      const cost = log.estimated_cost_usd ?? calculateCost(log.model || 'unknown', log.input_tokens || 0, log.output_tokens || 0);
-      csv += `"${log.timestamp || ''}","${log.provider || ''}","${log.model || ''}",${log.input_tokens || 0},${log.output_tokens || 0},${log.total_tokens || 0},${cost.toFixed(6)}\n`;
+      const calculated = calculateCost(log.model || 'unknown', log.input_tokens || 0, log.output_tokens || 0, log.cached_tokens || 0);
+      const cost = log.estimated_cost_usd ?? calculated.cost;
+      const saved = log.saved_cost_usd ?? calculated.saved;
+      const warn = log.has_security_warning ? (log.security_warning_type || 'WARNING') : 'NONE';
+
+      csv += `"${log.timestamp || ''}","${log.provider || ''}","${log.model || ''}",${log.input_tokens || 0},${log.output_tokens || 0},${log.total_tokens || 0},${log.cached_tokens || 0},${cost.toFixed(6)},${saved.toFixed(6)},"${warn}"\n`;
     } catch (e) {}
   }
 

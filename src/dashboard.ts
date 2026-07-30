@@ -31,12 +31,22 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         else if (p.includes('groq')) badgeColor = '#f55036';
         else if (p.includes('ollama')) badgeColor = '#888888';
 
+        let securityBadge = '';
+        if (log.has_security_warning) {
+            securityBadge = ` <span class="badge" style="background:#ff5252; color:#fff;" title="Secrets/PII pattern detected in prompt payload">⚠️ ${log.security_warning_type || 'EXPOSED SECRET'}</span>`;
+        }
+
+        let cacheBadge = '';
+        if (log.cached_tokens && log.cached_tokens > 0) {
+            cacheBadge = `<br><span style="font-size:0.75rem; color:#03dac6;">⚡ ${log.cached_tokens.toLocaleString()} cached</span>`;
+        }
+
         logsHtml += `
             <tr class="log-row" data-provider="${log.provider}" data-search="${log.provider} ${log.model} ${rawTimestamp}">
                 <td class="local-time" data-timestamp="${rawTimestamp}">-</td>
-                <td><span class="badge" style="background:${badgeColor}">${log.provider}</span></td>
+                <td><span class="badge" style="background:${badgeColor}">${log.provider}</span>${securityBadge}</td>
                 <td style="color:#bbb; font-weight: 500;">${log.model || 'unknown'}</td>
-                <td class="num">${log.input_tokens.toLocaleString()}</td>
+                <td class="num">${log.input_tokens.toLocaleString()}${cacheBadge}</td>
                 <td class="num">${log.output_tokens.toLocaleString()}</td>
                 <td class="num total-col">${log.total_tokens.toLocaleString()}</td>
                 <td class="num cost-col">$${cost}</td>
@@ -51,9 +61,18 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
     let modelsHtml = '';
     const sortedModels = Object.entries(all.models).sort((a, b) => b[1].total_tokens - a[1].total_tokens);
     for (const [modelName, mData] of sortedModels) {
+        const costPer1MOutput = mData.output_tokens > 0 ? (mData.estimated_cost_usd / mData.output_tokens) * 1_000_000 : 0;
+        let valueTier = '<span class="badge" style="background:#03dac6; color:#000;">⚡ High Value</span>';
+        if (costPer1MOutput > 10) {
+            valueTier = '<span class="badge" style="background:#ff79c6; color:#000;">💎 Premium</span>';
+        } else if (costPer1MOutput > 2) {
+            valueTier = '<span class="badge" style="background:#bb86fc; color:#000;">⚖️ Balanced</span>';
+        }
+
         modelsHtml += `
             <tr>
                 <td style="color: #03dac6; font-weight: 600;">${modelName}</td>
+                <td>${valueTier}</td>
                 <td class="num">${mData.input_tokens.toLocaleString()}</td>
                 <td class="num">${mData.output_tokens.toLocaleString()}</td>
                 <td class="num total-col">${mData.total_tokens.toLocaleString()}</td>
@@ -62,7 +81,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
         `;
     }
     if (modelsHtml === '') {
-        modelsHtml = '<tr><td colspan="5" style="text-align: center; color: #888; padding: 2rem;">No model data available yet.</td></tr>';
+        modelsHtml = '<tr><td colspan="6" style="text-align: center; color: #888; padding: 2rem;">No model data available yet.</td></tr>';
     }
 
     const statsData = JSON.stringify({
@@ -260,7 +279,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
 
             <div class="nav-links">
                 <button class="nav-tab active" onclick="switchTab('overview')">📊 Overview</button>
-                <button class="nav-tab" onclick="switchTab('models')">🤖 Models</button>
+                <button class="nav-tab" onclick="switchTab('models')">🤖 Models & Ranking</button>
                 <button class="nav-tab" onclick="switchTab('logs')">📋 Activity Log</button>
                 <button class="nav-tab" onclick="switchTab('guide')">⚙️ Setup Guide</button>
             </div>
@@ -291,6 +310,21 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                     </div>
                     <div class="budget-track">
                         <div id="budget-bar-fill" class="budget-fill" style="width: ${budgetFillWidth}%; background-color: ${budgetColor};"></div>
+                    </div>
+                </div>
+
+                <div class="card-container">
+                    <div class="card" style="border-color: #03dac6;">
+                        <h3 style="color: #03dac6;">⚡ Prompt Cache Savings</h3>
+                        <div class="stat" id="stat-cache-saved">$${all.global.saved_cost_usd.toFixed(4)} USD</div>
+                        <div class="cost" style="color:#03dac6;" id="stat-cache-tokens">${all.global.cached_tokens.toLocaleString()} Cached Tokens</div>
+                        <div class="sub-stats">90% discount applied on cached prompt tokens</div>
+                    </div>
+                    <div class="card" style="border-color: ${all.global.security_warnings_count > 0 ? '#ff5252' : 'var(--surface-border)'}">
+                        <h3 style="color: ${all.global.security_warnings_count > 0 ? '#ff5252' : 'var(--primary)'}">🛡️ Security Sniffer</h3>
+                        <div class="stat" style="color: ${all.global.security_warnings_count > 0 ? '#ff5252' : '#fff'}" id="stat-secrets-count">${all.global.security_warnings_count}</div>
+                        <div class="cost" style="color: ${all.global.security_warnings_count > 0 ? '#ff5252' : 'var(--text-muted)'}">Exposed Secrets Detected</div>
+                        <div class="sub-stats">Local memory scan for API Keys, Passwords & JWT</div>
                     </div>
                 </div>
 
@@ -327,12 +361,13 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
 
             <!-- TAB 2: MODELS -->
             <div id="tab-models" class="tab-content">
-                <h2 style="margin-top:0;">🤖 Model Consumption & Costs</h2>
+                <h2 style="margin-top:0;">🤖 Model Consumption & Value Benchmark</h2>
                 <div class="table-wrapper">
                     <table>
                         <thead>
                             <tr>
                                 <th>Model</th>
+                                <th>Value Ranking</th>
                                 <th style="text-align: right;">Input Tokens</th>
                                 <th style="text-align: right;">Output Tokens</th>
                                 <th style="text-align: right;">Total Tokens</th>
@@ -350,7 +385,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
             <div id="tab-logs" class="tab-content">
                 <div class="table-header-tools">
                     <h2 style="margin:0;">📋 Recent Activity Logs</h2>
-                    <input type="text" id="search-input" class="search-input" placeholder="🔍 Search model, provider, date...">
+                    <input type="text" id="search-input" class="search-input" placeholder="🔍 Search model, provider, date, warnings...">
                 </div>
 
                 <div class="table-wrapper">
@@ -358,7 +393,7 @@ export function handleDashboard(req: http.IncomingMessage, res: http.ServerRespo
                         <thead>
                             <tr>
                                 <th>Timestamp</th>
-                                <th>Provider</th>
+                                <th>Provider & Security</th>
                                 <th>Model</th>
                                 <th style="text-align: right;">Input</th>
                                 <th style="text-align: right;">Output</th>
